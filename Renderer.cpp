@@ -103,11 +103,12 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
-    pointLights.emplace_back(glm::vec4(20.0f,  0.0f, 0.0f, 1), glm::vec4(0.0f, 0.2f, 0.5f, 1));
+    pointLights.emplace_back(glm::vec4(20.0f,  0.0f, 0.0f, 25), glm::vec4(0.0f, 0.2f, 0.5f, 10));
     //pointLights.emplace_back(glm::vec4(0.0f, 30.0f, 0.0f, 1), glm::vec4(0.7f, 0.0f, 0.1f, 1));
     dirLights.emplace_back(glm::vec4(0.0f, 0.0f, -1.0f, 1), glm::vec4(0.35f, 0.0f, 0.1f, 1));
     dirLights.emplace_back(glm::vec4(1.0f, 0.0f, 1.0f, 1), glm::vec4(0.0f, 0.0005f, 0.0f, 1));
     //pointLights.emplace_back(glm::vec4(-5.0f, 0.0f, -5.0f, 1), glm::vec4(1.0f, 0.8f, 0.3f, 1));
+    spotLights.emplace_back(glm::vec4(-9.0f, -1.0f, 2.0f, 10), glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec4(1), 0.95f, 0.96f);
 
     // Upload geometry and material indices.
     if (indices.size() > 0 && vertices.size() > 0)

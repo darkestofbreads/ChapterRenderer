@@ -16,17 +16,21 @@ struct Vertex {
 };
 
 struct PointLight {
-	vec4 pos;
-	vec4 color;
+	vec3 pos;
+	float radius;
+	vec3 color;
+	float falloff;
 };
 struct DirLight {
 	vec4 lightDir;
 	vec4 color;
 };
 struct SpotLight {
-	vec4 pos;
+	vec3 pos;
+	float radius;
 	vec4 lightDir;
-	vec4 color;
+	vec3 color;
+	float falloff;
 	float cutoff;
 	float innerCutoff;
 };
@@ -112,12 +116,16 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 }
 
 vec3 CalcPointLight(PointLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
-	vec3 L = normalize(light.pos.xyz - V);
+	vec3 L = normalize(light.pos - V);
 	vec3 H = normalize(L - V);
 
-	float dist        = distance(light.pos.xyz, V);
-	float attenuation = 1 / (dist * dist);
-	vec3 radiance     =  attenuation * light.color.xyz;
+	float normaDist = distance(light.pos, V) / light.radius;
+	if(normaDist >= 1.0)
+		return vec3(0);
+
+	float normaDist2  = normaDist * normaDist;
+	float attenuation = pow((1 - normaDist2), 2) / (1 + light.falloff * normaDist2);
+	vec3 radiance     = attenuation * light.color;
 
 	float NdotH     = max(dot(N, H), 0.0);
 	float coverage  = max(dot(L, N), 0.0);
@@ -159,7 +167,7 @@ vec3 CalcDirLight(DirLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoug
 	return (kdiffuse * albedo / PI + specular) * radiance * coverage;
 }
 vec3 CalcSpotLight(SpotLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
-	vec3 L      = normalize(light.pos.xyz - V);
+	vec3 L      = normalize(light.pos - V);
 	float theta = dot(L, -normalize(light.lightDir.xyz));
 	if(theta < light.cutoff)
 		return vec3(0.0, 0.0, 0.0);
@@ -168,9 +176,16 @@ vec3 CalcSpotLight(SpotLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRo
 	float epsilon   = light.innerCutoff - light.cutoff;
 	float intensity = clamp((theta - light.cutoff) / epsilon, 0.0, 1.0); 
 
-	float dist        = distance(light.pos.xyz, V);
-	float attenuation = 1 / (dist * dist);
-	vec3 radiance     =  attenuation * light.color.xyz;
+//	float dist        = distance(light.pos.xyz, V);
+//	float attenuation = 1 / (dist * dist);
+//	vec3 radiance     =  attenuation * light.color.xyz;
+	float normaDist = distance(light.pos, V) / light.radius;
+	if(normaDist >= 1.0)
+		return vec3(0);
+
+	float normaDist2  = normaDist * normaDist;
+	float attenuation = pow((1 - normaDist2), 2) / (1 + light.falloff * normaDist2);
+	vec3 radiance     = attenuation * light.color;
 
 	float NdotH     = max(dot(N, H), 0.0);
 	float coverage  = max(dot(L, N), 0.0);
@@ -207,12 +222,12 @@ void main() {
 	// Possibly move updates of light positions and normals to a compute shader.
 	for(int i = 0; i < lightsCount.x; i++) {
 			PointLight pointLight = pointLightBuffer.pointLights[i];
-			pointLight.pos = worldTransform * pointLight.pos;
+			pointLight.pos = (worldTransform * vec4(pointLight.pos, 1)).xyz;
 			fragment += CalcPointLight(pointLight, pos, N, difFrag.xyz, metallicRoughness);
 	}
 	for(int i = 0; i < lightsCount.y; i++) {
 			SpotLight spotLight = spotLightBuffer.spotLights[i];
-			spotLight.pos = worldTransform * spotLight.pos;
+			spotLight.pos = (worldTransform * vec4(spotLight.pos, 1)).xyz;
 			spotLight.lightDir = normalTransform * spotLight.lightDir;
 			fragment += CalcSpotLight(spotLight, pos, N, difFrag.xyz, metallicRoughness);
 	}
