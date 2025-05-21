@@ -398,13 +398,13 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
         stbi_image_free(pixels);
     }
     else if (sourceBufferView.mimeType == fastgltf::MimeType::KTX2) {
-        ktxTexture* textureKTX;
-        const auto& result = ktxTexture_CreateFromMemory(imageChars.data(), imageChars.size(), KTX_TEXTURE_CREATE_CHECK_GLTF_BASISU_BIT, &textureKTX);
-        if (!result)
-            return 0;
-        pixels = ktxTexture_GetData(textureKTX);
-        textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ textureKTX->baseWidth, textureKTX->baseHeight }, vk::ImageUsageFlagBits::eSampled));
-        ktxTexture_Destroy(textureKTX);
+        //ktxTexture* textureKTX;
+        //const auto& result = ktxTexture_CreateFromMemory(imageChars.data(), imageChars.size(), KTX_TEXTURE_CREATE_CHECK_GLTF_BASISU_BIT, &textureKTX);
+        //if (!result)
+        //    return 0;
+        //pixels = ktxTexture_GetData(textureKTX);
+        //textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ textureKTX->baseWidth, textureKTX->baseHeight }, vk::ImageUsageFlagBits::eSampled));
+        //ktxTexture_Destroy(textureKTX);
     }
     else
         return 0;

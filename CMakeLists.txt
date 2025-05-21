@@ -1,56 +1,23 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
 project ("ChapterOne")
-
-include_directories(external)
-include_directories(external/ktx/include)
-include_directories(external/ktx/other_include)
-
-# Fetch external depencies.
-include (FetchContent)
-FetchContent_Declare(
-	fastgltf
-	GIT_REPOSITORY https://github.com/spnda/fastgltf.git
-	GIT_TAG v0.8.0
-)
-FetchContent_Declare(
-	SDL3
-	GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-	GIT_TAG release-3.2.0
-)
-set(KTX_FEATURE_STATIC_LIBRARY ON CACHE BOOL "Build KTX as a static library" FORCE)
-FetchContent_Declare(
-    ktx
-    GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software
-    GIT_TAG v4.4.0
-)
-FetchContent_MakeAvailable (fastgltf SDL3 ktx)
-
-find_package(Vulkan REQUIRED)
-
 file(GLOB SOURCES *.cpp)
 add_executable(ChapterOne ${SOURCES})
-target_include_directories(ChapterOne PRIVATE ${Vulkan_INCLUDE_DIRS} ${ktx_SOURCE_DIR}/include)
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(BUILD_SHARED_LIBS ON)
+
+find_package(Vulkan REQUIRED)
+add_subdirectory(external/vendored/SDL)
+add_subdirectory(external/fastgltf EXCLUDE_FROM_ALL)
+#add_subdirectory(external/KTX EXCLUDE_FROM_ALL)
 
 target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
-target_link_libraries(ChapterOne PRIVATE SDL3::SDL3)
-add_custom_command(
-        TARGET ChapterOne POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy $<TARGET_FILE:SDL3::SDL3-shared> $<TARGET_FILE_DIR:ChapterOne>
-        VERBATIM
-    )
+target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)
 target_link_libraries(ChapterOne PRIVATE fastgltf::fastgltf)
-add_custom_command(
-        TARGET ChapterOne POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy $<TARGET_FILE:fastgltf> $<TARGET_FILE_DIR:ChapterOne>
-        VERBATIM
-    )
-target_link_libraries(ChapterOne PRIVATE ktx)
-add_custom_command(
-        TARGET ChapterOne POST_BUILD
-        COMMAND "${CMAKE_COMMAND}" -E copy $<TARGET_FILE:ktx> $<TARGET_FILE_DIR:ChapterOne>
-        VERBATIM
-    )
+#target_link_libraries(ChapterOne PRIVATE ktx)
 
 set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
 
