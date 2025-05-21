@@ -405,6 +405,7 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
         //pixels = ktxTexture_GetData(textureKTX);
         //textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ textureKTX->baseWidth, textureKTX->baseHeight }, vk::ImageUsageFlagBits::eSampled));
         //ktxTexture_Destroy(textureKTX);
+        return 0;
     }
     else
         return 0;

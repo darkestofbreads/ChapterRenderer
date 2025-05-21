@@ -2,24 +2,8 @@
 
 project ("ChapterOne")
 file(GLOB SOURCES *.cpp)
-add_executable(ChapterOne ${SOURCES})
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-set(BUILD_SHARED_LIBS ON)
 
 find_package(Vulkan REQUIRED)
-add_subdirectory(extern/SDL)
-add_subdirectory(extern/fastgltf)
-add_subdirectory(extern/ktx)
-
-target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
-target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)
-target_link_libraries(ChapterOne PRIVATE fastgltf::fastgltf)
-#target_link_libraries(ChapterOne PRIVATE ktx)
-
-set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
 
 # Collect all shader files
 file(GLOB SHADERS *.frag *.mesh)
@@ -29,7 +13,7 @@ set(SPIRV_VERSION "1.4")
 foreach(SHADER ${SHADERS})
     get_filename_component(FILENAME ${SHADER} NAME)
     add_custom_command(
-        OUTPUT ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv
+        OUTPUT  ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv
         COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv --target-spv=spv${SPIRV_VERSION}
         DEPENDS ${SHADER}
     )
@@ -45,4 +29,23 @@ set(TARGET_ASSETS_DIR ${CMAKE_BINARY_DIR}/assets)
 add_custom_target(CopyAssets
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${ASSETS_DIR} ${TARGET_ASSETS_DIR}
 )
+
+add_executable(ChapterOne ${SOURCES})
 add_dependencies(ChapterOne CopyAssets)
+
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(BUILD_SHARED_LIBS ON)
+
+add_subdirectory(extern/SDL)
+add_subdirectory(extern/fastgltf)
+add_subdirectory(extern/ktx)
+
+target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
+target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)
+target_link_libraries(ChapterOne PRIVATE fastgltf::fastgltf)
+#target_link_libraries(ChapterOne PRIVATE ktx)
+
+
+set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
