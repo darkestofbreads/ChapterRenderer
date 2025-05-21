@@ -10,9 +10,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(BUILD_SHARED_LIBS ON)
 
 find_package(Vulkan REQUIRED)
-add_subdirectory(external/vendored/SDL)
-add_subdirectory(external/fastgltf EXCLUDE_FROM_ALL)
-#add_subdirectory(external/KTX EXCLUDE_FROM_ALL)
+add_subdirectory(extern/SDL)
+add_subdirectory(extern/fastgltf)
+add_subdirectory(extern/ktx)
 
 target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
 target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)

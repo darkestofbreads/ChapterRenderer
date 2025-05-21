@@ -1,0 +1,9 @@
+[submodule "extern/fastgltf"]
+	path = extern/fastgltf
+	url = https://github.com/spnda/fastgltf.git
+[submodule "extern/ktx"]
+	path = extern/ktx
+	url = https://github.com/KhronosGroup/KTX-Software.git
+[submodule "extern/sdl"]
+	path = extern/sdl
+	url = https://github.com/libsdl-org/SDL.git
