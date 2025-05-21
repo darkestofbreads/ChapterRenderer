@@ -40,12 +40,10 @@ set(BUILD_SHARED_LIBS ON)
 
 add_subdirectory(extern/SDL)
 add_subdirectory(extern/fastgltf)
-add_subdirectory(extern/ktx)
 
 target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
 target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)
 target_link_libraries(ChapterOne PRIVATE fastgltf::fastgltf)
-#target_link_libraries(ChapterOne PRIVATE ktx)
 
 
 set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
