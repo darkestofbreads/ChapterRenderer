@@ -160,8 +160,6 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
 }
 
-
-
 void Renderer::Draw() {
     // Aquire next image.
     auto imageNext = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
@@ -259,7 +257,7 @@ void Renderer::BuildGlobalTransform() {
 
     worldTransform = glm::lookAt(position, position + direction, glm::vec3(0, 1.0f, 0));
     vertexTransform = {
-        glm::perspective(glm::radians(90.0f), (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height, 0.1f, 100.0f) *
+        glm::perspective(glm::radians(90.0f), (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height, 0.1f, 4000.0f) *
         worldTransform
     };
 }
@@ -519,7 +517,6 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             }
         }
     }
-
 }
 
 template<typename T>
