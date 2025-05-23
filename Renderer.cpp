@@ -79,7 +79,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     materialIndexGroups.emplace_back(0, 1, 1);
 
     // Load test model.
-    parser = fastgltf::Parser();
+    parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
 
     auto dragonTrans = glm::mat4(1.0f);
     dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 5.0f, 2.0f));
@@ -103,12 +103,10 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
-    pointLights.emplace_back(glm::vec4(20.0f,  0.0f, 0.0f, 25), glm::vec4(0.0f, 0.2f, 0.5f, 10));
-    //pointLights.emplace_back(glm::vec4(0.0f, 30.0f, 0.0f, 1), glm::vec4(0.7f, 0.0f, 0.1f, 1));
+    pointLights.emplace_back(glm::vec3(20.0f,  0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
     dirLights.emplace_back(glm::vec4(0.0f, 0.0f, -1.0f, 1), glm::vec4(0.35f, 0.0f, 0.1f, 1));
     dirLights.emplace_back(glm::vec4(1.0f, 0.0f, 1.0f, 1), glm::vec4(0.0f, 0.0005f, 0.0f, 1));
-    //pointLights.emplace_back(glm::vec4(-5.0f, 0.0f, -5.0f, 1), glm::vec4(1.0f, 0.8f, 0.3f, 1));
-    spotLights.emplace_back(glm::vec4(-9.0f, -1.0f, 2.0f, 10), glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec4(1), 0.95f, 0.96f);
+    spotLights.emplace_back(glm::vec3(-9.0f, -1.0f, 2.0f), 10.0f, glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec3(1), 0.0f, 0.95f, 0.96f);
 
     // Upload geometry and material indices.
     if (indices.size() > 0 && vertices.size() > 0)
@@ -412,20 +410,66 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
 void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
 
     auto data = fastgltf::GltfDataBuffer::FromPath(path);
-    if (data.error() != fastgltf::Error::None) {
-        assert("An error occoured while loading GLTF, or the buffer could not be allocated: {path}");
+    if (auto error = data.error(); error != fastgltf::Error::None) {
+        std::cout << fastgltf::getErrorMessage(error) << "\n";
+        throw;
     }
     auto gltf = parser.loadGltf(data.get(), path.parent_path(), fastgltf::Options::LoadGLBBuffers);
     if (auto error = gltf.error(); error != fastgltf::Error::None) {
-        assert("An error occoured while reading the buffer, parsing the JSON, or validating the data of GLTF: {path}");
+        std::cout << fastgltf::getErrorMessage(error) << "\n";
+        throw;
     }
     auto asset = std::move(gltf.get());
 
 #if defined(_DEBUG)
     if (auto error = fastgltf::validate(asset); error != fastgltf::Error::None) {
-        assert("An error occured while validating GLTF in DEBUG: {path}");
+        std::cout << fastgltf::getErrorMessage(error) << "\n";
+        throw;
     }
 #endif
+
+    auto normalTransform = glm::mat3(glm::transpose(glm::inverse(transform)));
+
+    for (const auto& node : asset.nodes) {
+        // Load light.
+        if (node.lightIndex.has_value()) {
+            const auto& light = asset.lights[node.lightIndex.value()];
+            const auto& nodeData = get<fastgltf::TRS>(node.transform);
+            switch (light.type) {
+            case fastgltf::LightType::Point:
+                PointLight pl;
+                pl.color    = glm::vec3(light.color.x(), light.color.y(), light.color.z());
+                pl.Position = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
+                pl.falloff  = 0;
+
+                pl.radius = 100;
+                if (light.range.has_value())
+                    pl.radius = light.range.value();
+                pointLights.emplace_back(pl);
+                break;
+            case fastgltf::LightType::Spot:
+                SpotLight sl;
+                sl.color       = glm::vec3(light.color.x(), light.color.y(), light.color.z());
+                sl.pos         = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
+                //sl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
+                sl.falloff     = 0;
+                sl.cutoff      = glm::radians(light.outerConeAngle.value());
+                sl.innerCutoff = glm::radians(light.innerConeAngle.value());
+                
+                sl.radius = 100;
+                if (light.range.has_value())
+                    sl.radius = light.range.value();
+                //spotLights.emplace_back(sl);
+                break;
+            case fastgltf::LightType::Directional:
+                DirLight dl;
+                dl.color = glm::vec4(light.color.x(), light.color.y(), light.color.z(), 1);
+                //dl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
+                //dirLights.emplace_back(dl);
+                break;
+            }
+        }
+    }
     // Load materials.
     std::vector<uint32_t> materialIDs;
     std::vector<MaterialIndexGroup> matIndexGroups;
@@ -461,7 +505,6 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             auto normals          = ReadAttribute<glm::vec3>(asset, primitive, "NORMAL");
             const auto& texCoords = ReadAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0");
 
-            auto normalTransform = glm::mat3(glm::transpose(glm::inverse(transform)));
             for (size_t t = 0; t < positions.size(); t++) {
                 auto pos = transform * glm::vec4(positions[t], 1);
                 positions[t] = pos.xyz;

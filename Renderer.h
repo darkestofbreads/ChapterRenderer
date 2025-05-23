@@ -20,6 +20,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
@@ -39,17 +40,21 @@ struct MaterialIndexGroup {
 	uint32_t emissive;
 };
 struct PointLight {
-	glm::vec4 Position;
-	glm::vec4 color;
+	glm::vec3 Position;
+	float radius;
+	glm::vec3 color;
+	float falloff;
 };
 struct DirLight {
 	glm::vec4 lightDir;
 	glm::vec4 color;
 };
 struct SpotLight {
-	glm::vec4 pos;
+	glm::vec3 pos;
+	float radius;
 	glm::vec4 lightDir;
-	glm::vec4 color;
+	glm::vec3 color;
+	float falloff;
 	float cutoff;
 	float innerCutoff;
 };
