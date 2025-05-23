@@ -5,10 +5,8 @@ file(GLOB SOURCES *.cpp)
 
 find_package(Vulkan REQUIRED)
 
-# Collect all shader files
-file(GLOB SHADERS *.frag *.mesh)
-
-# Compile each shader using glslc
+# GLSL to SPIR-V
+file(GLOB SHADERS shaders/*.frag shaders/*.mesh)
 set(SPIRV_VERSION "1.4")
 foreach(SHADER ${SHADERS})
     get_filename_component(FILENAME ${SHADER} NAME)
@@ -19,11 +17,9 @@ foreach(SHADER ${SHADERS})
     )
     list(APPEND SPIRV_BINARY_FILES ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv)
 endforeach()
-
-# Add a custom target to compile all shaders
 add_custom_target(Shaders ALL DEPENDS ${SPIRV_BINARY_FILES})
 
-# Add a custom target for all assets
+# Copy assets to build.
 set(ASSETS_DIR ${CMAKE_SOURCE_DIR}/assets)
 set(TARGET_ASSETS_DIR ${CMAKE_BINARY_DIR}/assets)
 add_custom_target(CopyAssets
@@ -33,8 +29,6 @@ add_custom_target(CopyAssets
 add_executable(ChapterOne ${SOURCES})
 add_dependencies(ChapterOne CopyAssets)
 
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(BUILD_SHARED_LIBS ON)
 
@@ -44,6 +38,5 @@ add_subdirectory(extern/fastgltf)
 target_link_libraries(ChapterOne PRIVATE Vulkan::Vulkan)
 target_link_libraries(ChapterOne PRIVATE SDL3::SDL3-shared)
 target_link_libraries(ChapterOne PRIVATE fastgltf::fastgltf)
-
 
 set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
