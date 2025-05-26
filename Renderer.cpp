@@ -103,6 +103,12 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
+    auto sponzaTrans = glm::mat4(1.0f);
+    sponzaTrans = glm::translate(sponzaTrans, glm::vec3(0, 2, 0));
+    sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+    sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+    LoadGLTF("assets/sponza.glb", sponzaTrans);
+
     pointLights.emplace_back(glm::vec3(20.0f,  0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
     dirLights.emplace_back(glm::vec4(0.0f, 0.0f, -1.0f, 1), glm::vec4(0.35f, 0.0f, 0.1f, 1));
     dirLights.emplace_back(glm::vec4(1.0f, 0.0f, 1.0f, 1), glm::vec4(0.0f, 0.0005f, 0.0f, 1));
@@ -156,6 +162,9 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
         .setPushConstantRanges(perspectiveRange)
         .setSetLayouts(imageDescLayout);
     pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
+
+    // Setup UI.
+    InitImGui(window);
 }
 
 void Renderer::Draw() {
@@ -169,12 +178,18 @@ void Renderer::Draw() {
         return;
     }
 
+    // Start ImGui frame.
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    // Start window.
+    ImGui::ShowDemoWindow();
+    //ImGui::Text("Hello World");
+
     BeginRendering(imageIndex);
 
     BuildGlobalTransform();
-
-    auto meshletColor = glm::vec3(1, 0, 0);
-    SwapColor(meshletColor);
 
     glm::vec4 lightsCount(0);
     lightsCount.x = pointLights.size();
@@ -227,6 +242,10 @@ void Renderer::Draw() {
     cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
     cmdBuffer.drawMeshTasksEXT(static_cast<uint32_t>(indices.size()), 1, 1, dldid);
 
+    // Render GUI.
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command.cmdBuffer);
+
     // End the rendering process and transition our image to be presentable.
     cmdBuffer.endRendering();
     command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
@@ -243,9 +262,6 @@ void Renderer::Draw() {
 void Renderer::Move(float forward, float sideward) {
     position += forward * direction;
     position -= glm::normalize(glm::cross(direction, glm::vec3(0, 1, 0))) * sideward;
-}
-void Renderer::SwapColor(glm::vec3& color) {
-    color = color.yzx;
 }
 void Renderer::BuildGlobalTransform() {
     direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
@@ -357,6 +373,32 @@ void Renderer::Present(uint32_t imageIndex) {
     device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
     device.device.resetFences(renderFinishedFence);
     device.device.resetCommandPool(command.cmdPool);
+}
+
+void Renderer::InitImGui(SDL_Window* window) {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    ImGui::StyleColorsDark();
+    ImGui_ImplSDL3_InitForVulkan(window);
+    ImGui_ImplVulkan_InitInfo imGuiInitInfo = {};
+    imGuiInitInfo.UseDynamicRendering = true;
+    imGuiInitInfo.ApiVersion = VK_API_VERSION_1_4;
+    imGuiInitInfo.Device = device.device;
+    imGuiInitInfo.ImageCount = swapchain.images.size();
+    imGuiInitInfo.Instance = instance.instance;
+    imGuiInitInfo.MinImageCount = 2;
+    imGuiInitInfo.PhysicalDevice = device.physicalDevice;
+    imGuiInitInfo.Queue = static_cast<VkQueue>(graphicsQueue);
+    imGuiInitInfo.QueueFamily = device.graphicsQueueFamilyIndex;
+    imGuiInitInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 1;
+    imGuiInitInfo.PipelineRenderingCreateInfo = static_cast<VkPipelineRenderingCreateInfo>(vk::PipelineRenderingCreateInfoKHR());
+    imGuiInitInfo.MinAllocationSize = 1024 * 1024;
+    ImGui_ImplVulkan_Init(&imGuiInitInfo);
+    ImGui_ImplVulkan_CreateFontsTexture();
+    clearColorUI = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 }
 
 // Read 3D model

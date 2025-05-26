@@ -1,7 +1,7 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
 project ("ChapterOne")
-file(GLOB SOURCES *.cpp)
+file(GLOB SOURCES *.cpp imgui/*.cpp)
 
 find_package(Vulkan REQUIRED)
 

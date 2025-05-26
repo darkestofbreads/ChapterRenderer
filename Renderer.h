@@ -9,7 +9,9 @@
 
 #include "stb_image.h"
 
-//#include <ktxvulkan.h>
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_sdl3.h"
+#include "imgui/imgui_impl_vulkan.h"
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -106,6 +108,9 @@ private:
 	void SubmitImmediate(std::function<void()>& func);
 	void BeginRendering(uint32_t imageIndex);
 
+	void BuildGlobalTransform();
+	void InitImGui(SDL_Window* window);
+
 	GPUMeshBuffer UploadMesh(std::span<glm::uvec4> indices, std::span<Vertex> vertices);
 	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
 
@@ -119,12 +124,9 @@ private:
 	vk::Sampler nearestSampler;
 	vk::Sampler linearSampler;
 
-	void SwapColor(glm::vec3& color);
-
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
-	void BuildGlobalTransform();
 	GPUMeshBuffer meshBuffer;
 	AllocatedBuffer CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage);
 	VmaAllocator allocator;
@@ -140,6 +142,8 @@ private:
 	glm::mat4 worldTransform;
 	glm::vec3 position;
 	glm::vec3 direction;
+
+	ImVec4 clearColorUI;
 
 	Device device;
 	

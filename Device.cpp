@@ -42,17 +42,23 @@ Device::Device(vk::Instance& instance) {
     }
 
     // Chain of configured extension features.
+
+    // KHR version explicitly required for ImGui.
+    auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
+        .setDynamicRendering(vk::True);
+
     auto descriptorIndexingFeatures = vk::PhysicalDeviceDescriptorIndexingFeatures()
-        .setRuntimeDescriptorArray(vk::True);
+        .setRuntimeDescriptorArray(vk::True)
+        .setPNext(&dynamicRenderingFeaturesIMGUI);
     auto bufferDeviceAddressFeatures = vk::PhysicalDeviceBufferDeviceAddressFeatures()
         .setBufferDeviceAddress(vk::True)
         .setPNext(&descriptorIndexingFeatures);
-    auto dynamicRenderingFeatures = vk::PhysicalDeviceDynamicRenderingFeatures()
-        .setDynamicRendering(vk::True)
-        .setPNext(&bufferDeviceAddressFeatures);
+    //auto dynamicRenderingFeatures = vk::PhysicalDeviceDynamicRenderingFeatures()
+    //    .setDynamicRendering(vk::True)
+    //    .setPNext(&bufferDeviceAddressFeatures);
     auto sync2Features = vk::PhysicalDeviceSynchronization2Features()
         .setSynchronization2(vk::True)
-        .setPNext(&dynamicRenderingFeatures);
+        .setPNext(&bufferDeviceAddressFeatures);
     auto shaderObjectFeatures = vk::PhysicalDeviceShaderObjectFeaturesEXT()
         .setShaderObject(vk::True)
         .setPNext(&sync2Features);

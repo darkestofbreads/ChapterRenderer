@@ -20,6 +20,7 @@
 void doRendering(std::atomic<bool>* stillRunning, SDL_Window* window, std::atomic<bool>* ready
     , std::atomic<float>* forward, std::atomic<float>* sidewards, std::atomic<float>* yaw, std::atomic<float>* pitch) {
     Renderer renderer(window, ready);
+
     while (*stillRunning) {
         renderer.pitch = *pitch;
         renderer.yaw = *yaw;
