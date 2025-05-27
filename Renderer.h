@@ -6,6 +6,7 @@
 #include "Device.h"
 #include "Instance.h"
 #include "Command.h"
+#include "Timer.h"
 
 #include "stb_image.h"
 
@@ -146,14 +147,12 @@ private:
 	ImVec4 clearColorUI;
 
 	Device device;
-	
 	Swapchain swapchain;
 	std::array<AllocatedImage, IMAGE_COUNT> depthImages;
 	vk::ImageSubresourceRange depthSubresourceRange;
 
 	Instance instance;
-
-	Buffer vertexBuffer;
+	Timer frameTimer;
 
 	Command command;
 	vk::CommandBuffer cmdBuffer;

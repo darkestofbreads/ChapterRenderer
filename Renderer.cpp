@@ -4,6 +4,7 @@
 #include "Renderer.h"
 
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
+    frameTimer = Timer();
     instance = Instance(window, ready);
     dldid = vk::detail::DispatchLoaderDynamic(instance.instance, vkGetInstanceProcAddr);
 
@@ -168,11 +169,8 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-
-    ImGui::ShowDemoWindow();
+    double frameTime = frameTimer.GetMilliseconds();
+    frameTimer.Reset();
 
     // Aquire next image.
     auto imageNext = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
@@ -183,6 +181,15 @@ void Renderer::Draw() {
         swapchain.Recreate(instance.pWindow);
         return;
     }
+
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    std::string positionStr = "X: " + std::to_string(position.x) + " Y: " + std::to_string(position.y) + " Z: " + std::to_string(position.z) + "\n";
+    std::string frameTimeStr = std::to_string(frameTime) + " ms | " + std::to_string(1000 / frameTime) + " fps\n";
+    ImGui::Text(positionStr.c_str());
+    ImGui::Text(frameTimeStr.c_str());
 
     BeginRendering(imageIndex);
 
@@ -378,6 +385,7 @@ void Renderer::InitImGui(SDL_Window* window) {
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    io.FontGlobalScale = 3.0f;
     ImGui::StyleColorsDark();
     ImGui_ImplSDL3_InitForVulkan(window);
     ImGui_ImplVulkan_InitInfo imGuiInitInfo = {};
