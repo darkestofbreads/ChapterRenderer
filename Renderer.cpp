@@ -168,6 +168,12 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    ImGui::ShowDemoWindow();
+
     // Aquire next image.
     auto imageNext = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
     auto imageIndex = imageNext.value;
@@ -177,15 +183,6 @@ void Renderer::Draw() {
         swapchain.Recreate(instance.pWindow);
         return;
     }
-
-    // Start ImGui frame.
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-
-    // Start window.
-    ImGui::ShowDemoWindow();
-    //ImGui::Text("Hello World");
 
     BeginRendering(imageIndex);
 
@@ -242,9 +239,8 @@ void Renderer::Draw() {
     cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
     cmdBuffer.drawMeshTasksEXT(static_cast<uint32_t>(indices.size()), 1, 1, dldid);
 
-    // Render GUI.
     ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), command.cmdBuffer);
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(command.cmdBuffer));
 
     // End the rendering process and transition our image to be presentable.
     cmdBuffer.endRendering();
@@ -252,6 +248,7 @@ void Renderer::Draw() {
     command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
      vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
     cmdBuffer.end();
+
 
     // Submit and present image.
     SubmitDraw();
@@ -389,12 +386,14 @@ void Renderer::InitImGui(SDL_Window* window) {
     imGuiInitInfo.Device = device.device;
     imGuiInitInfo.ImageCount = swapchain.images.size();
     imGuiInitInfo.Instance = instance.instance;
-    imGuiInitInfo.MinImageCount = 2;
+    imGuiInitInfo.MinImageCount = swapchain.images.size();
     imGuiInitInfo.PhysicalDevice = device.physicalDevice;
     imGuiInitInfo.Queue = static_cast<VkQueue>(graphicsQueue);
     imGuiInitInfo.QueueFamily = device.graphicsQueueFamilyIndex;
     imGuiInitInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 1;
-    imGuiInitInfo.PipelineRenderingCreateInfo = static_cast<VkPipelineRenderingCreateInfo>(vk::PipelineRenderingCreateInfoKHR());
+    imGuiInitInfo.PipelineRenderingCreateInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
+    imGuiInitInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    imGuiInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = reinterpret_cast<VkFormat*>(&swapchain.renderFormat);
     imGuiInitInfo.MinAllocationSize = 1024 * 1024;
     ImGui_ImplVulkan_Init(&imGuiInitInfo);
     ImGui_ImplVulkan_CreateFontsTexture();
