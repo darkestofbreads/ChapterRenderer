@@ -177,8 +177,9 @@ void Renderer::Draw() {
     auto imageIndex = imageNext.value;
     auto imageResult = imageNext.result;
 
-    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
-        swapchain.Recreate(instance.pWindow);
+    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR || requestNewSwapchain) {
+        swapchain.Recreate(instance.pWindow, doVsync);
+        requestNewSwapchain = false;
         return;
     }
 
@@ -190,6 +191,9 @@ void Renderer::Draw() {
     std::string frameTimeStr = std::to_string(frameTime) + " ms | " + std::to_string(1000 / frameTime) + " fps\n";
     ImGui::Text(positionStr.c_str());
     ImGui::Text(frameTimeStr.c_str());
+    requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
+    if (requestNewSwapchain)
+        std::cout << "Checkbox pressed!\n";
 
     BeginRendering(imageIndex);
 
@@ -370,7 +374,7 @@ void Renderer::Present(uint32_t imageIndex) {
         device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
         device.device.resetFences(renderFinishedFence);
         device.device.resetCommandPool(command.cmdPool);
-        swapchain.Recreate(instance.pWindow);
+        swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
     

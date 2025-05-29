@@ -108,6 +108,8 @@ private:
 	void SubmitDraw();
 	void SubmitImmediate(std::function<void()>& func);
 	void BeginRendering(uint32_t imageIndex);
+	bool doVsync = true;
+	bool requestNewSwapchain = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);

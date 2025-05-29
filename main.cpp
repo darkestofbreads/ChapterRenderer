@@ -17,23 +17,7 @@
 #include <atomic>
 #include <thread>
 
-void doRendering(std::atomic<bool>* stillRunning, SDL_Window* window, std::atomic<bool>* ready
-    , std::atomic<float>* forward, std::atomic<float>* sidewards, std::atomic<float>* yaw, std::atomic<float>* pitch) {
-    Renderer renderer(window, ready);
-
-    while (*stillRunning) {
-        renderer.pitch = *pitch;
-        renderer.yaw = *yaw;
-        renderer.Move(*forward, *sidewards);
-
-        // Send position and rotation to logic handler.
-
-        renderer.Draw();
-    }
-}
-
-int main()
-{
+void doRendering(std::atomic<bool>* stillRunning, SDL_Window* windowOut, std::atomic<bool>* ready) {
     // Window creation.
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cout << "Could not initialize SDL. Please ensure your system detects any monitor before continuing." << std::endl;
@@ -43,34 +27,27 @@ int main()
         std::cout << "Could not create SDL window." << std::endl;
     }
     SDL_SetWindowBordered(window, false);
-
-    bool doFullscreenNextChange = false;
-    bool isExclusive = false;
     SDL_SetWindowFullscreen(window, true);
     SDL_SetWindowMouseGrab(window, true);
     SDL_SetWindowRelativeMouseMode(window, true);
+    Renderer renderer(window, ready);
+    windowOut = window;
 
-    std::atomic<bool> stillRunning = true;
-    std::atomic<bool> ready = false;
-
-    std::atomic<float> forward = 0, sidewards = 0;
-    std::atomic<float> yaw = 0, pitch = 0;
-    float localPitch = 0;
+    bool doFullscreenNextChange = false;
+    bool isExclusive = false;
+    bool grabMouse   = true;
     float sensitivity = 0.1f;
-    bool hasMoved = false;
-
-    // Start rendering
-    std::thread renderThread(doRendering, &stillRunning, std::ref(window), &ready, &forward, &sidewards, &yaw, &pitch);
-    while (!ready) {}
-    ready = false;
-    std::cout << "Ready!\n";
+    float forward  = 0;
+    float sideward = 0;
+    float yaw = 0;
 
     InputHandler input;
     auto& isPressed = input.IsPressed;
-    while (stillRunning) {
-        // Poll for user input.
+    while (*stillRunning) {
+        // Poll events.
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            ImGui_ImplSDL3_ProcessEvent(&event);
             auto keyCode = event.key.key;
             float yOffset;
             float xOffset;
@@ -83,24 +60,27 @@ int main()
                 isPressed[keyCode] = false;
                 break;
             case SDL_EVENT_MOUSE_MOTION:
-                yOffset = event.motion.yrel * sensitivity;
-                xOffset = event.motion.xrel * sensitivity;
-                yaw = yaw + xOffset;
-                localPitch += yOffset;
-                if (localPitch < -89.0f)
-                    localPitch = -89.0f;
-                if (localPitch > 89.0f)
-                    localPitch = 89.0f;
-                pitch = localPitch;
+                if (grabMouse) {
+                    auto rely = event.motion.yrel;
+                    auto rel = event.motion.xrel;
+                    std::cout << rel << " " << rely << "\n";
+                    xOffset = rel * sensitivity;
+                    yOffset = rely * sensitivity;
+                    renderer.pitch += yOffset;
+                    yaw = yaw + xOffset;
+                    if (renderer.pitch < -89.0f)
+                        renderer.pitch = -89.0f;
+                    if (renderer.pitch >  89.0f)
+                        renderer.pitch =  89.0f;
+                }
                 break;
             case SDL_EVENT_WINDOW_FOCUS_LOST:
-                // Open pause menu.
-                // A pause menu should be a requirement for every game.
-                // The reason is to simply not have the mouse stuck in the middle for some reason
-                // despite capturing it.
+                grabMouse = false;
+                SDL_SetWindowMouseGrab(window, grabMouse);
+                SDL_SetWindowRelativeMouseMode(window, grabMouse);
                 break;
             case SDL_EVENT_QUIT:
-                stillRunning = false;
+                *stillRunning = false;
                 break;
 
             default:
@@ -108,44 +88,37 @@ int main()
                 break;
             }
         }
-        // Perform input action.
-
-        stillRunning = !isPressed[SDLK_ESCAPE];
-
+        *stillRunning = !isPressed[SDLK_ESCAPE];
         // Movement.
-        float velocity = isPressed[SDLK_LSHIFT] ? 0.1f : 0.01f;
-        forward = isPressed[SDLK_W] ? velocity : isPressed[SDLK_S] ? -velocity : 0;
-        sidewards = isPressed[SDLK_A] ? velocity : isPressed[SDLK_D] ? -velocity : 0;
+        float velocity = isPressed[SDLK_LSHIFT] ? 0.5f : 0.1f;
+        forward  = isPressed[SDLK_W] ? velocity : isPressed[SDLK_S] ? -velocity : 0;
+        sideward = isPressed[SDLK_A] ? velocity : isPressed[SDLK_D] ? -velocity : 0;
+        renderer.yaw = yaw;
+        renderer.Move(forward, sideward);
 
-        // Fullscreen management.
-        if (isPressed[SDLK_F11] && input.IsDelayOver()) {
-            if (doFullscreenNextChange) {
-                if (isExclusive)
-                    SDL_SetWindowFullscreen(window, true);
-                else
-                    SDL_SetWindowFullscreen(window, true);
-                doFullscreenNextChange = false;
-            }
-            else {
-                SDL_SetWindowFullscreen(window, false);
-                doFullscreenNextChange = true;
-            }
-            input.SetDelay(15);
+        if (isPressed[SDLK_F]) {
+            grabMouse = !grabMouse;
+            SDL_SetWindowMouseGrab(window, grabMouse);
+            SDL_SetWindowRelativeMouseMode(window, grabMouse);
         }
-        if (isPressed[SDLK_F10] && input.IsDelayOver()) {
-            if (isExclusive) {
-                SDL_SetWindowBordered(window, false);
-                isExclusive = false;
-            }
-            else {
-                SDL_SetWindowBordered(window, true);
-                isExclusive = true;
-            }
-            input.SetDelay(15);
-        }
-        // Tick internal counter.
-        input.Tick();
+        // Send position and rotation to logic handler.
+
+        renderer.Draw();
     }
+}
+
+int main()
+{
+    std::atomic<bool> stillRunning = true;
+    std::atomic<bool> ready        = false;
+
+    // Start rendering
+    SDL_Window* window;
+    std::thread renderThread(doRendering, &stillRunning, std::ref(window), &ready);
+    while (!ready) {}
+    std::cout << "Ready!\n";
+
+    while (stillRunning) {}
     renderThread.join();
 	return 0;
 }

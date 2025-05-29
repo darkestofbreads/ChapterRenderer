@@ -61,7 +61,7 @@ void Swapchain::Cleanup() {
     pDevice->destroySwapchainKHR(swapchain);
 }
 
-void Swapchain::Recreate(SDL_Window* pWindow) {
+void Swapchain::Recreate(SDL_Window* pWindow, bool vsync) {
     pDevice->waitIdle();
     Cleanup();
 
@@ -80,6 +80,9 @@ void Swapchain::Recreate(SDL_Window* pWindow) {
         .setImageColorSpace(colorSpace)
         .setImageExtent(renderExtend)
         .setPresentMode(vk::PresentModeKHR::eFifo);
+
+    if (!vsync)
+        swapchainInfo.setPresentMode(vk::PresentModeKHR::eImmediate);
 
     swapchain = pDevice->createSwapchainKHR(swapchainInfo);
     images = pDevice->getSwapchainImagesKHR(swapchain);

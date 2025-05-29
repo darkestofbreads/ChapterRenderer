@@ -14,7 +14,7 @@ public:
 	Swapchain(vk::Device* device, vk::PhysicalDevice& pDevice, vk::SurfaceKHR& surface);
 	vk::SwapchainKHR Get();
 
-	void Recreate(SDL_Window* pWindow);
+	void Recreate(SDL_Window* pWindow, bool vsync);
 
 	vk::SwapchainKHR swapchain;
 
