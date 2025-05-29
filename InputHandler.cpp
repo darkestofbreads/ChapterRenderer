@@ -1,15 +1,23 @@
 #include "InputHandler.h"
-
 InputHandler::InputHandler() {
-	delay = 0;
+	keyboardStates = SDL_GetKeyboardState(NULL);
 }
-void InputHandler::Tick() {
-	if (delay > 0)
-		delay--;
+void InputHandler::HandleInput() {
+	SDL_PumpEvents();
 }
-void InputHandler::SetDelay(uint32_t ticks) {
-	delay = ticks;
+bool InputHandler::IsPressed(SDL_Scancode key) {
+	auto& held = isHeld[key];
+	if (keyboardStates[key]) {
+		if (!held) {
+			held = true;
+			return true;
+		}
+		return false;
+	}
+
+	held = false;
+	return false;
 }
-bool InputHandler::IsDelayOver() {
-	return (delay == 0);
+bool InputHandler::IsHeld(SDL_Scancode key) {
+	return keyboardStates[key];
 }

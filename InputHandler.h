@@ -3,17 +3,19 @@
 #include <SDL3/SDL.h>
 
 #include <map>
+#include <vector>
 
 class InputHandler
 {
 public:
 	InputHandler();
-	void Tick();
-	void SetDelay(uint32_t ticks);
-	bool IsDelayOver();
 
-	std::map<SDL_Keycode, bool> IsPressed;
+	// Only necessary when not calling SDL_PollEvent.
+	void HandleInput();
+
+	bool IsPressed(SDL_Scancode key);
+	bool IsHeld(SDL_Scancode key);
 private:
-	uint32_t delay;
+	std::map<SDL_Scancode, bool> isHeld;
+	const bool* keyboardStates;
 };
-

@@ -41,31 +41,17 @@ void doRendering(std::atomic<bool>* stillRunning, SDL_Window* windowOut, std::at
     float sideward = 0;
     float yaw = 0;
 
+    SDL_Event event;
     InputHandler input;
-    auto& isPressed = input.IsPressed;
     while (*stillRunning) {
         // Poll events.
-        SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
-            auto keyCode = event.key.key;
-            float yOffset;
-            float xOffset;
             switch (event.type) {
-
-            case SDL_EVENT_KEY_DOWN:
-                isPressed[keyCode] = true;
-                break;
-            case SDL_EVENT_KEY_UP:
-                isPressed[keyCode] = false;
-                break;
             case SDL_EVENT_MOUSE_MOTION:
                 if (grabMouse) {
-                    auto rely = event.motion.yrel;
-                    auto rel = event.motion.xrel;
-                    std::cout << rel << " " << rely << "\n";
-                    xOffset = rel * sensitivity;
-                    yOffset = rely * sensitivity;
+                    float xOffset = event.motion.xrel * sensitivity;
+                    float yOffset = event.motion.yrel * sensitivity;
                     renderer.pitch += yOffset;
                     yaw = yaw + xOffset;
                     if (renderer.pitch < -89.0f)
@@ -82,21 +68,19 @@ void doRendering(std::atomic<bool>* stillRunning, SDL_Window* windowOut, std::at
             case SDL_EVENT_QUIT:
                 *stillRunning = false;
                 break;
-
             default:
-                // Do nothing.
                 break;
             }
         }
-        *stillRunning = !isPressed[SDLK_ESCAPE];
+        *stillRunning = !input.IsPressed(SDL_SCANCODE_ESCAPE);
         // Movement.
-        float velocity = isPressed[SDLK_LSHIFT] ? 0.5f : 0.1f;
-        forward  = isPressed[SDLK_W] ? velocity : isPressed[SDLK_S] ? -velocity : 0;
-        sideward = isPressed[SDLK_A] ? velocity : isPressed[SDLK_D] ? -velocity : 0;
+        float velocity = input.IsHeld(SDL_SCANCODE_LSHIFT) ? 0.5f : 0.1f;
+        forward  = input.IsHeld(SDL_SCANCODE_W) ? velocity : input.IsHeld(SDL_SCANCODE_S) ? -velocity : 0;
+        sideward = input.IsHeld(SDL_SCANCODE_A) ? velocity : input.IsHeld(SDL_SCANCODE_D) ? -velocity : 0;
         renderer.yaw = yaw;
         renderer.Move(forward, sideward);
 
-        if (isPressed[SDLK_F]) {
+        if (input.IsPressed(SDL_SCANCODE_F)) {
             grabMouse = !grabMouse;
             SDL_SetWindowMouseGrab(window, grabMouse);
             SDL_SetWindowRelativeMouseMode(window, grabMouse);
