@@ -101,8 +101,8 @@ public:
 	void Draw();
 
 	void Move(float forward, float sideward);
-	float yaw;
-	float pitch;
+	float yaw = 0;
+	float pitch = 0;
 private:
 	void Present(uint32_t imageIndex);
 	void SubmitDraw();
