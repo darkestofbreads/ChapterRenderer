@@ -7,3 +7,9 @@
 [submodule "extern/sdl"]
 	path = extern/sdl
 	url = https://github.com/libsdl-org/SDL.git
+[submodule "meshoptimizer"]
+	path = meshoptimizer
+	url = https://github.com/zeux/meshoptimizer.git
+[submodule "extern/meshoptimizer"]
+	path = extern/meshoptimizer
+	url = https://github.com/zeux/meshoptimizer.git

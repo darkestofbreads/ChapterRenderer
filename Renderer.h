@@ -28,6 +28,8 @@
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
 
+#include <meshoptimizer.h>
+
 #include <iostream>
 #include <vector>
 
