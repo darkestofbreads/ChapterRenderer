@@ -32,6 +32,7 @@
 
 #include <iostream>
 #include <vector>
+#include <random>
 
 struct Vertex {
 	glm::vec3 Position;
@@ -62,6 +63,8 @@ struct SpotLight {
 	float falloff;
 	float cutoff;
 	float innerCutoff;
+	float fillerA;
+	float fillerB;
 };
 struct PushConstantData {
 	glm::mat4 projView;

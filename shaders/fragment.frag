@@ -33,6 +33,8 @@ struct SpotLight {
 	float falloff;
 	float cutoff;
 	float innerCutoff;
+	float fillerA;
+	float fillerB;
 };
 
 layout(location = 1) in vec2 uv;

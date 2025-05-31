@@ -104,15 +104,40 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
-    auto sponzaTrans = glm::mat4(1.0f);
-    sponzaTrans = glm::translate(sponzaTrans, glm::vec3(0, 2, 0));
-    sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-    sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-    LoadGLTF("assets/sponza.glb", sponzaTrans);
+    // Many sponzas for benchmarking.
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 2; j++) {
+            for (size_t k = 0; k < 3; k++) {
+                auto sponzaTrans = glm::mat4(1.0f);
+                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i*40, j*20, k*25));
+                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+                LoadGLTF("assets/sponza.glb", sponzaTrans);
+            }
+        }
+    }
+    std::cout << "\nLoaded all models.\n";
+    std::cout << "Size of all vertices:" << sizeof(Vertex)*vertices.size() << " Bytes, indices:" << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
+
+    // xyz: 20 0 25 "Centre"
+    const auto centre = glm::vec3(20, 0, 25);
+    std::random_device randomDevice;
+    auto ranGen = std::mt19937(randomDevice());
+
+    std::uniform_int_distribution<int> posxzDistrib(-10, 60);
+    std::uniform_int_distribution<int> posyDistrib(-10, 20);
+    std::uniform_int_distribution<int> rangeDistrib(5, 30);
+    for (size_t i = 0; i < 100; i++) {
+        const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
+        const auto dir = centre - pos;
+        spotLights.emplace_back(pos, rangeDistrib(ranGen),
+            glm::vec4(glm::normalize(dir), 1),
+            glm::vec3(1), 
+            0.0f, 0.95f, 0.96f);
+    }
 
     pointLights.emplace_back(glm::vec3(20.0f,  0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
-    dirLights.emplace_back(glm::vec4(0.0f, 0.0f, -1.0f, 1), glm::vec4(0.35f, 0.0f, 0.1f, 1));
-    dirLights.emplace_back(glm::vec4(1.0f, 0.0f, 1.0f, 1), glm::vec4(0.0f, 0.0005f, 0.0f, 1));
+    dirLights.emplace_back(glm::vec4(-1.0f, 1.0f, -1.0f, 1), glm::vec4(0.85f, 0.85f, 0.5f, 1));
     spotLights.emplace_back(glm::vec3(-9.0f, -1.0f, 2.0f), 10.0f, glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec3(1), 0.0f, 0.95f, 0.96f);
 
     // Upload geometry and material indices.
@@ -461,12 +486,15 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
     return textures.size() - 1;
 }
 void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
-
+    Timer total = Timer();
+    Timer parts = Timer();
     auto data = fastgltf::GltfDataBuffer::FromPath(path);
     if (auto error = data.error(); error != fastgltf::Error::None) {
         std::cout << fastgltf::getErrorMessage(error) << "\n";
         throw;
     }
+    std::cout << "Took " << parts.GetMilliseconds() << " ms to open file." << "\n";
+    parts.Reset();
     auto gltf = parser.loadGltf(data.get(), path.parent_path(), fastgltf::Options::LoadGLBBuffers);
     if (auto error = gltf.error(); error != fastgltf::Error::None) {
         std::cout << fastgltf::getErrorMessage(error) << "\n";
@@ -480,6 +508,9 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
         throw;
     }
 #endif
+
+    std::cout << "Took " << parts.GetMilliseconds() << " ms to load file." << "\n";
+    parts.Reset();
 
     auto normalTransform = glm::mat3(glm::transpose(glm::inverse(transform)));
 
@@ -548,6 +579,8 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
         materialIDs.emplace_back(materialIndexGroups.size());
         materialIndexGroups.emplace_back(materialIndices);
     }
+    std::cout << "Took " << parts.GetMilliseconds() << " ms to load materials." << "\n";
+    parts.Reset();
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
         for (const auto& primitive : mesh.primitives) {
@@ -558,17 +591,26 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             auto normals          = ReadAttribute<glm::vec3>(asset, primitive, "NORMAL");
             const auto& texCoords = ReadAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0");
 
+            std::cout << "Took " << parts.GetMilliseconds() << " ms to read attributes." << "\n";
+            parts.Reset();
+
             for (size_t t = 0; t < positions.size(); t++) {
                 auto pos = transform * glm::vec4(positions[t], 1);
                 positions[t] = pos.xyz;
                 normals[t]   = normalTransform * normals[t];
             }
 
+            std::cout << "Took " << parts.GetMilliseconds() << " ms to transform normals and positions." << "\n";
+            parts.Reset();
+
             // Add vertices to pool.
-            vertices.reserve(vertices.size() + positions.size());
-            for (size_t i = 0; i < positions.size(); i++) {
-                vertices.emplace_back(positions[i], texCoords[i].x, normals[i], texCoords[i].y);
-            }
+            size_t vertOffset = vertices.size();
+            vertices.resize(vertOffset + positions.size());
+            for (size_t i = 0; i < positions.size(); i++)
+                vertices[i + vertOffset] = { positions[i], texCoords[i].x, normals[i], texCoords[i].y };
+
+            std::cout << "Took " << parts.GetMilliseconds() << " ms to add vertices." << "\n";
+            parts.Reset();
 
             // Determine material.
             uint32_t virtualMaterialIndex = 0;
@@ -611,8 +653,10 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
                     count += 3;
                 }
             }
+            std::cout << "Took " << parts.GetMilliseconds() << " ms to format and add indices." << "\n";
         }
     }
+    std::cout << "Took " << total.GetMilliseconds() << " ms to fully load model." << "\n\n";
 }
 
 template<typename T>
