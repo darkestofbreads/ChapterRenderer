@@ -18,6 +18,7 @@ Device::Device(vk::Instance& instance) {
     std::vector<const char*> deviceExtensions;
     deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME); //
     deviceExtensions.push_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME); //
+    deviceExtensions.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME); //
     deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME); //
     std::vector<bool> extensionSupported(deviceExtensions.size());
     
