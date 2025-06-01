@@ -1,0 +1,46 @@
+#version 450
+
+#extension GL_EXT_mesh_shader : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : enable
+
+#include "common.h"
+
+layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
+	Vertex vertices[];
+};
+layout(buffer_reference, std430) readonly buffer IndexBuffer{
+	uvec4 indices[];
+};
+layout(buffer_reference, std430) readonly buffer MaterialBuffer{
+	Material materials[];
+};
+layout(buffer_reference, std430) readonly buffer PointLightBuffer{
+	PointLight pointLights[];
+};
+layout(buffer_reference, std430) readonly buffer DirLightBuffer{
+	DirLight dirLights[];
+};
+layout(buffer_reference, std430) readonly buffer SpotLightBuffer{
+	SpotLight spotLights[];
+};
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 worldTransform;
+
+	// Pointlight, spotlight, dirlight, meshlight count.
+	vec4 lightsCount;
+
+	VertexBuffer vertexBuffer;
+	IndexBuffer indexBuffer;
+	MaterialBuffer materialBuffer;
+	PointLightBuffer pointLightBuffer;
+	SpotLightBuffer spotLightBuffer;
+	DirLightBuffer dirLightBuffer;
+};
+
+void main() {
+	int triCount = int(lightsCount.w);
+	EmitMeshTasksEXT(triCount, 1, 1);
+}

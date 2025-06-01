@@ -5,10 +5,6 @@ public:
 	Timer() {
 		startPoint = std::chrono::high_resolution_clock::now();
 	}
-	// Not useful rn.
-	//~Timer() {
-	//	Stop();
-	//}
 	void Reset() {
 		startPoint = std::chrono::high_resolution_clock::now();
 	}

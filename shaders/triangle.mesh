@@ -1,34 +1,10 @@
 #version 450
+
 #extension GL_EXT_mesh_shader : enable
 #extension GL_EXT_buffer_reference : require
+#extension GL_GOOGLE_include_directive : enable
 
-struct Vertex {
-	vec3 Position;
-	float U;
-	vec3 Normal;
-	float V;
-};
-struct Material {
-	uint diffuse;
-	uint metallicRoughness;
-	uint emmisive;
-};
-
-struct PointLight {
-	vec4 Position;
-	vec4 color;
-};
-struct DirLight {
-	vec4 lightDir;
-	vec4 color;
-};
-struct SpotLight {
-	vec4 pos;
-	vec4 lightDir;
-	vec4 color;
-	float cutoff;
-	float innerCutoff;
-};
+#include "common.h"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 

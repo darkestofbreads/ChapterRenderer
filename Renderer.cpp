@@ -228,6 +228,8 @@ void Renderer::Draw() {
     lightsCount.x = pointLights.size();
     lightsCount.y = spotLights.size();
     lightsCount.z = dirLights.size();
+    // Very temporary.
+    lightsCount.w = static_cast<uint32_t>(indices.size());
 
     PushConstantData pushConstant{
         vertexTransform,
@@ -273,7 +275,7 @@ void Renderer::Draw() {
 
     // Draw image.
     cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
-    cmdBuffer.drawMeshTasksEXT(static_cast<uint32_t>(indices.size()), 1, 1, dldid);
+    cmdBuffer.drawMeshTasksEXT(lightsCount.w, 1, 1, dldid);
 
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(command.cmdBuffer));

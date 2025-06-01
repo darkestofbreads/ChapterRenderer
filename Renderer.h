@@ -1,8 +1,6 @@
 #pragma once
 #include "Shader.h"
-#include "Vertex.h"
 #include "Swapchain.h"
-#include "Buffer.h"
 #include "Device.h"
 #include "Instance.h"
 #include "Command.h"
@@ -181,8 +179,9 @@ private:
 
 	std::vector<vk::ShaderEXT> shaders;
 
-	vk::ShaderStageFlagBits meshStages[3] = {
+	std::array<vk::ShaderStageFlagBits, 3> meshStages = {
 	vk::ShaderStageFlagBits::eVertex,
+	//vk::ShaderStageFlagBits::eTaskEXT,
 	vk::ShaderStageFlagBits::eMeshEXT,
 	vk::ShaderStageFlagBits::eFragment
 	};
