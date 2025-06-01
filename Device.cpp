@@ -43,9 +43,12 @@ Device::Device(vk::Instance& instance) {
 
     // Chain of configured extension features.
 
+    auto unusedAttachmentsFeatures = vk::PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT()
+        .setDynamicRenderingUnusedAttachments(vk::True);
     // KHR version explicitly required for ImGui.
     auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
-        .setDynamicRendering(vk::True);
+        .setDynamicRendering(vk::True)
+        .setPNext(&unusedAttachmentsFeatures);
 
     auto descriptorIndexingFeatures = vk::PhysicalDeviceDescriptorIndexingFeatures()
         .setRuntimeDescriptorArray(vk::True)
@@ -67,7 +70,7 @@ Device::Device(vk::Instance& instance) {
         .setPNext(&shaderObjectFeatures);
     auto meshShaderFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
         .setMeshShader(vk::True)
-        //.setTaskShader(vk::True)
+        .setTaskShader(vk::True)
         .setPNext(&vulk14Features);
 
     // Query queues and create infos.

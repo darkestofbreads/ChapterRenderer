@@ -45,7 +45,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     auto perspectiveRange = vk::PushConstantRange()
         .setOffset(0)
         .setSize(sizeof(PushConstantData))
-        .setStageFlags(vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment);
+        .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment);
 
     // Semaphore and fence.
     auto semaphoreInfo = vk::SemaphoreCreateInfo();
@@ -107,7 +107,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     // Many sponzas for benchmarking.
     for (size_t i = 0; i < 2; i++) {
         for (size_t j = 0; j < 2; j++) {
-            for (size_t k = 0; k < 3; k++) {
+            for (size_t k = 0; k < /*3*/1; k++) {
                 auto sponzaTrans = glm::mat4(1.0f);
                 sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i*40, j*20, k*25));
                 sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
@@ -182,7 +182,8 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     imageDescLayout = device.device.createDescriptorSetLayout(descriptorLayoutInfo);
 
     // Shader object.
-    shaders = MakeMeshShaderObjects(device.device, "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
+    shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
+    //shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
 
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
@@ -202,7 +203,7 @@ void Renderer::Draw() {
     auto imageIndex = imageNext.value;
     auto imageResult = imageNext.result;
 
-    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR || requestNewSwapchain) {
+    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
         swapchain.Recreate(instance.pWindow, doVsync);
         requestNewSwapchain = false;
         return;
@@ -271,11 +272,14 @@ void Renderer::Draw() {
         .setStageFlags(vk::ShaderStageFlagBits::eFragment);
 
     cmdBuffer.pushDescriptorSet2(pushDescInfo);
-    cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
+    cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
 
     // Draw image.
     cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
-    cmdBuffer.drawMeshTasksEXT(lightsCount.w, 1, 1, dldid);
+
+    // Launch one invocation per meshlet,
+    // then inside each invocation, emit one mesh shader each primitive.
+    cmdBuffer.drawMeshTasksEXT(1, 1, 1, dldid);
 
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(command.cmdBuffer));
@@ -398,13 +402,18 @@ void Renderer::Present(uint32_t imageIndex) {
         graphicsQueue.presentKHR(info);
     }
     catch (std::exception e) {
+        requestNewSwapchain = true;
+    }
+    
+    if (requestNewSwapchain) {
+        requestNewSwapchain = false;
         device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
         device.device.resetFences(renderFinishedFence);
         device.device.resetCommandPool(command.cmdPool);
         swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
-    
+
     device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
     device.device.resetFences(renderFinishedFence);
     device.device.resetCommandPool(command.cmdPool);

@@ -179,9 +179,9 @@ private:
 
 	std::vector<vk::ShaderEXT> shaders;
 
-	std::array<vk::ShaderStageFlagBits, 3> meshStages = {
+	std::array<vk::ShaderStageFlagBits, 4> meshStages = {
 	vk::ShaderStageFlagBits::eVertex,
-	//vk::ShaderStageFlagBits::eTaskEXT,
+	vk::ShaderStageFlagBits::eTaskEXT,
 	vk::ShaderStageFlagBits::eMeshEXT,
 	vk::ShaderStageFlagBits::eFragment
 	};
