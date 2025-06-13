@@ -4,231 +4,18 @@
 #include "Renderer.h"
 
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
-    frameTimer = Timer();
-    instance = Instance(window, ready);
-    dldid = vk::detail::DispatchLoaderDynamic(instance.instance, vkGetInstanceProcAddr);
+    InitMainObjects(window, ready);
+    CreateFencesAndSemaphores();
 
-    device = Device(instance.instance);
+    CreateSamplers_Init();
+    CreateDebugTextures();
 
-    // Create allocator for data transfer to GPU.
-    VmaVulkanFunctions vkFuncs = {};
-    vkFuncs.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
-    vkFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+    LoadModels_Init();
+    SpawnLights_Init();
+    UploadAll_Init();
 
-    VmaAllocatorCreateInfo allocInfo = {};
-    allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-    allocInfo.vulkanApiVersion = VK_API_VERSION_1_3;
-    allocInfo.device = device.device;
-    allocInfo.instance = instance.instance;
-    allocInfo.physicalDevice = device.physicalDevice;
-    allocInfo.pVulkanFunctions = &vkFuncs;
-    vmaCreateAllocator(&allocInfo, &allocator);
-
-    depthSubresourceRange = vk::ImageSubresourceRange()
-        .setAspectMask(vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
-        .setBaseMipLevel(0)
-        .setBaseArrayLayer(0)
-        .setLayerCount(1)
-        .setLevelCount(1);
-
-    // Swapchain and depth images.
-    swapchain = Swapchain(&device.device, device.physicalDevice, instance.surface);
-    for (auto& i : depthImages)
-        i = CreateDepthImage();
-
-    graphicsQueue = device.device.getQueue(device.graphicsQueueFamilyIndex, 0);
-
-    command = Command(device);
-    cmdBuffer = command.cmdBuffer;
-
-    // Pipeline layout for push constant.
-    auto perspectiveRange = vk::PushConstantRange()
-        .setOffset(0)
-        .setSize(sizeof(PushConstantData))
-        .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment);
-
-    // Semaphore and fence.
-    auto semaphoreInfo = vk::SemaphoreCreateInfo();
-    imageAquiredSemaphore = device.device.createSemaphore(semaphoreInfo);
-    renderFinishedSemaphore = device.device.createSemaphore(semaphoreInfo);
-
-    auto fenceInfo = vk::FenceCreateInfo();
-    renderFinishedFence = device.device.createFence(fenceInfo);
-    immediateFence = device.device.createFence(fenceInfo);
-
-    // Camera (abstract later).
-    position  = glm::vec3(0);
-    direction = glm::vec3(0, 0, 1.0f);
-
-    vertexTransform =
-        glm::perspective(glm::radians(90.0f), (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height, 0.1f, 100.0f) *
-        glm::lookAt(position, position + direction, glm::vec3(0, 1.0f, 0));
-
-    // Make checkerboard texture for meshes that have missing materials.
-    uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
-    uint32_t black   = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
-    uint32_t white   = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
-
-    std::array<uint32_t, 16 * 16> checkerboardData;
-    for (size_t x = 0; x < 16; x++)
-        for (size_t y = 0; y < 16; y++)
-            checkerboardData[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
-
-    textures.emplace_back(CreateUploadImage(checkerboardData.data(), vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 16, 16 }, vk::ImageUsageFlagBits::eSampled));
-    textures.emplace_back(CreateUploadImage(&black, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
-    textures.emplace_back(CreateUploadImage(&white, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
-    materialIndexGroups.emplace_back(0, 1, 1);
-
-    // Load test model.
-    parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
-
-    auto dragonTrans = glm::mat4(1.0f);
-    dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 5.0f, 2.0f));
-    dragonTrans = glm::rotate<float>(dragonTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-    dragonTrans = glm::scale(dragonTrans, glm::vec3(0.1f));
-    LoadGLTF("assets/stanford_dragon.glb", dragonTrans);
-
-    auto helmetTrans = glm::mat4(1.0f);
-    helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
-    helmetTrans = glm::rotate<float>(helmetTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
-    LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
-
-    auto toyTrans = glm::mat4(1.0f);
-    toyTrans = glm::translate(toyTrans, glm::vec3(-3.0f, 0, 0));
-    toyTrans = glm::rotate<float>(toyTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
-    toyTrans = glm::scale(toyTrans, glm::vec3(0.005f));
-    LoadGLTF("assets/ToyCar.glb", toyTrans);
-
-    auto monkeTrans = glm::mat4(1.0f);
-    monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
-    monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-    LoadGLTF("assets/monke.glb", monkeTrans);
-
-    // Many sponzas for benchmarking.
-    for (size_t i = 0; i < 2; i++) {
-        for (size_t j = 0; j < 2; j++) {
-            for (size_t k = 0; k < /*3*/1; k++) {
-                auto sponzaTrans = glm::mat4(1.0f);
-                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i*40, j*20, k*25));
-                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-                LoadGLTF("assets/sponza.glb", sponzaTrans);
-            }
-        }
-    }
-    std::cout << "\nLoaded all models.\n";
-    std::cout << "Size of all vertices:" << sizeof(Vertex)*vertices.size() << " Bytes, indices:" << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
-
-    // xyz: 20 0 25 "Centre"
-    const auto centre = glm::vec3(20, 0, 25);
-    std::random_device randomDevice;
-    auto ranGen = std::mt19937(randomDevice());
-
-    std::uniform_int_distribution<int> posxzDistrib(-10, 60);
-    std::uniform_int_distribution<int> posyDistrib(-10, 20);
-    std::uniform_int_distribution<int> rangeDistrib(5, 30);
-    for (size_t i = 0; i < 100; i++) {
-        const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
-        const auto dir = centre - pos;
-        spotLights.emplace_back(pos, rangeDistrib(ranGen),
-            glm::vec4(glm::normalize(dir), 1),
-            glm::vec3(1), 
-            0.0f, 0.95f, 0.96f);
-    }
-
-    pointLights.emplace_back(glm::vec3(20.0f,  0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
-    dirLights.emplace_back(glm::vec4(-1.0f, 1.0f, -1.0f, 1), glm::vec4(0.85f, 0.85f, 0.5f, 1));
-    spotLights.emplace_back(glm::vec3(-9.0f, -1.0f, 2.0f), 10.0f, glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec3(1), 0.0f, 0.95f, 0.96f);
-
-    // Upload geometry and material indices.
-    if (indices.size() > 0 && vertices.size() > 0)
-        meshBuffer = UploadMesh(indices, vertices);
-    // Upload lights.
-    if (materialIndexGroups.size() > 0)
-        materialBufferAddress   = UploadData<MaterialIndexGroup>(materialIndexGroups);
-    if (pointLights.size() > 0)
-        pointLightBufferAddress = UploadData<PointLight>(pointLights);
-    if (spotLights.size() > 0)
-        spotLightBufferAddress  = UploadData<SpotLight>(spotLights);
-    if (dirLights.size() > 0)
-        dirLightBufferAddress   = UploadData<DirLight>(dirLights);
-
-    // Texture samplers.
-    auto nearestSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eNearest)
-        .setMinFilter(vk::Filter::eNearest);
-    auto linearSamplerInfo  = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear);
-    auto nearLinSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eNearest)
-        .setMinFilter(vk::Filter::eNearest);
-    auto linNearSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear);
-
-    nearestSampler = device.device.createSampler(nearestSamplerInfo);
-    linearSampler  = device.device.createSampler(linearSamplerInfo);
-
-    // Set bindings for the push descriptor (textures are on set = 0, binding = 0).
-    auto layoutBinding = vk::DescriptorSetLayoutBinding()
-        .setBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(textures.size())
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-    auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
-        .setBindings(layoutBinding);
-    imageDescLayout = device.device.createDescriptorSetLayout(descriptorLayoutInfo);
-
-    // Descriptor pool.
-    auto imagePoolSize = vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        // Change to frames in flight count.
-        .setDescriptorCount(textures.size());
-    auto imagePoolInfo = vk::DescriptorPoolCreateInfo()
-        // Change to frames in flight count.
-        .setMaxSets(1)
-        .setPoolSizes(imagePoolSize);
-    auto imagePool = device.device.createDescriptorPool(imagePoolInfo);
-
-    // Descriptor set.
-    auto imageDescAlloc = vk::DescriptorSetAllocateInfo()
-        .setDescriptorPool(imagePool)
-        .setSetLayouts(imageDescLayout);
-    imageDescSet = device.device.allocateDescriptorSets(imageDescAlloc);
-
-    // Write to descriptors.
-    std::vector<vk::DescriptorImageInfo> imageDescriptors;
-    imageDescriptors.reserve(textures.size());
-    for (size_t i = 0; i < textures.size(); i++) {
-        auto imageDescriptor = vk::DescriptorImageInfo()
-            .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImageView(textures[i].view);
-
-        imageDescriptors.emplace_back(imageDescriptor);
-    }
-    auto descWrite = vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDstSet(imageDescSet[0])
-        .setDstBinding(0)
-        .setDescriptorCount(imageDescriptors.size())
-        .setImageInfo(imageDescriptors);
-    std::array<vk::WriteDescriptorSet, 1> descWrites{
-        descWrite
-    };
-
-    std::function<void()> descFunc = [&](){ device.device.updateDescriptorSets(descWrites, nullptr); };
-    SubmitImmediate(descFunc);
-    device.device.resetCommandPool(command.cmdPool);
-
-    // Shader object.
-    shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
-    
-    auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
-        .setPushConstantRanges(perspectiveRange)
-        .setSetLayouts(imageDescLayout);
-    pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
+    CreateDescSets_Init();
+    CreatePipeline();
 
     // Setup UI.
     InitImGui(window);
@@ -237,78 +24,21 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 void Renderer::Draw() {
     double frameTime = frameTimer.GetMilliseconds();
     frameTimer.Reset();
+    uint32_t imageIndex;
+    if (!AquireImageIndex(imageIndex)) return;
 
-    // Aquire next image.
-    auto imageNext = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
-    auto imageIndex = imageNext.value;
-    auto imageResult = imageNext.result;
-
-    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
-        swapchain.Recreate(instance.pWindow, doVsync);
-        requestNewSwapchain = false;
-        return;
-    }
-
-    ImGui_ImplVulkan_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
-
-    std::string positionStr = "X: " + std::to_string(position.x) + " Y: " + std::to_string(position.y) + " Z: " + std::to_string(position.z) + "\n";
-    std::string frameTimeStr = std::to_string(frameTime) + " ms | " + std::to_string(1000 / frameTime) + " fps\n";
-    ImGui::Text(positionStr.c_str());
-    ImGui::Text(frameTimeStr.c_str());
-    requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
-    if (requestNewSwapchain)
-        std::cout << "Checkbox pressed!\n";
-
+    ImGui_Draw(frameTime);
     BeginRendering(imageIndex);
-
-    BuildGlobalTransform();
-
-    glm::vec4 lightsCount(0);
-    lightsCount.x = pointLights.size();
-    lightsCount.y = spotLights.size();
-    lightsCount.z = dirLights.size();
-    // Very temporary.
-    lightsCount.w = static_cast<uint32_t>(indices.size());
-
-    PushConstantData pushConstant{
-        vertexTransform,
-        worldTransform,
-        lightsCount,
-        meshBuffer.vertexBufferAddress,
-        meshBuffer.indexBufferAddress,
-        materialBufferAddress,
-        pointLightBufferAddress,
-        spotLightBufferAddress,
-        dirLightBufferAddress
-    };
-
-    cmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
-
-    cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
-
-    // Draw image.
+    PushConstant_Draw();
     cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
-
     // Launch one invocation per meshlet,
     // then inside each invocation, emit one mesh shader each primitive.
+    // Draw meshes.
     cmdBuffer.drawMeshTasksEXT(1, 1, 1, dldid);
-
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(command.cmdBuffer));
 
-    // End the rendering process and transition our image to be presentable.
-    cmdBuffer.endRendering();
-    command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
-    command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
-     vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
-    cmdBuffer.end();
-
-
-    // Submit and present image.
-    SubmitDraw();
-    Present(imageIndex);
+    SubmitAndPresent(imageIndex);
 }
 
 // Camera related functions.
@@ -329,7 +59,18 @@ void Renderer::BuildGlobalTransform() {
     };
 }
 
-void Renderer::BeginRendering(uint32_t imageIndex) {
+bool Renderer::AquireImageIndex(uint32_t& index) {
+    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
+    const auto imageResult = imageNext.result;
+    index = imageNext.value;
+    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
+        swapchain.Recreate(instance.pWindow, doVsync);
+        requestNewSwapchain = false;
+        return false;
+    }
+    return true;
+}
+void Renderer::BeginRendering(const uint32_t imageIndex) {
     auto beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
     cmdBuffer.begin(beginInfo);
@@ -381,16 +122,7 @@ void Renderer::BeginRendering(uint32_t imageIndex) {
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     cmdBuffer.beginRendering(renderInfo);
 }
-void Renderer::SubmitDraw() {
-    vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-    vk::SubmitInfo submitInfo = vk::SubmitInfo()
-        .setCommandBuffers(cmdBuffer)
-        .setWaitSemaphores(imageAquiredSemaphore)
-        .setSignalSemaphores(renderFinishedSemaphore)
-        .setWaitDstStageMask(waitStage);
-    graphicsQueue.submit(submitInfo, renderFinishedFence);
-}
-void Renderer::SubmitImmediate(std::function<void()>& func) {
+void Renderer::SubmitImmediate(const std::function<void()>& func) {
     device.device.resetFences(immediateFence);
 
     vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
@@ -406,19 +138,33 @@ void Renderer::SubmitImmediate(std::function<void()>& func) {
     graphicsQueue.submit(submitInfo, immediateFence);
     device.device.waitForFences(immediateFence, false, UINT64_MAX);
 }
-void Renderer::Present(uint32_t imageIndex) {
+void Renderer::SubmitAndPresent(uint32_t imageIndex) {
+    // End rendering.
+    cmdBuffer.endRendering();
+    command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
+    command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
+    cmdBuffer.end();
+    // Submit work.
+    vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::SubmitInfo submitInfo = vk::SubmitInfo()
+        .setCommandBuffers(cmdBuffer)
+        .setWaitSemaphores(imageAquiredSemaphore)
+        .setSignalSemaphores(renderFinishedSemaphore)
+        .setWaitDstStageMask(waitStage);
+    graphicsQueue.submit(submitInfo, renderFinishedFence);
+
+    // Present image.
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
         .setSwapchains(swapchain.swapchain)
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphore);
-
     try {
         graphicsQueue.presentKHR(info);
     }
     catch (std::exception e) {
         requestNewSwapchain = true;
     }
-    
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
         device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
@@ -427,7 +173,6 @@ void Renderer::Present(uint32_t imageIndex) {
         swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
-
     device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
     device.device.resetFences(renderFinishedFence);
     device.device.resetCommandPool(command.cmdPool);
@@ -460,6 +205,61 @@ void Renderer::InitImGui(SDL_Window* window) {
     ImGui_ImplVulkan_Init(&imGuiInitInfo);
     ImGui_ImplVulkan_CreateFontsTexture();
     clearColorUI = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
+}
+void Renderer::CreatePipeline() {
+    auto perspectiveRange = vk::PushConstantRange()
+        .setOffset(0)
+        .setSize(sizeof(PushConstantData))
+        .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment);
+    // Shader object.
+    shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
+    auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
+        .setPushConstantRanges(perspectiveRange)
+        .setSetLayouts(imageDescLayout);
+    pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
+}
+void Renderer::CreateFencesAndSemaphores() {
+    auto semaphoreInfo = vk::SemaphoreCreateInfo();
+    imageAquiredSemaphore = device.device.createSemaphore(semaphoreInfo);
+    renderFinishedSemaphore = device.device.createSemaphore(semaphoreInfo);
+
+    auto fenceInfo = vk::FenceCreateInfo();
+    renderFinishedFence = device.device.createFence(fenceInfo);
+    immediateFence = device.device.createFence(fenceInfo);
+}
+void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
+    frameTimer = Timer();
+    instance = Instance(window, ready);
+    dldid = vk::detail::DispatchLoaderDynamic(instance.instance, vkGetInstanceProcAddr);
+    device = Device(instance.instance);
+
+    // Create allocator for data transfer to GPU.
+    VmaVulkanFunctions vkFuncs = {};
+    vkFuncs.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
+    vkFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
+    VmaAllocatorCreateInfo allocInfo = {};
+    allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    allocInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocInfo.device = device.device;
+    allocInfo.instance = instance.instance;
+    allocInfo.physicalDevice = device.physicalDevice;
+    allocInfo.pVulkanFunctions = &vkFuncs;
+    vmaCreateAllocator(&allocInfo, &allocator);
+
+    depthSubresourceRange = vk::ImageSubresourceRange()
+        .setAspectMask(vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
+        .setBaseMipLevel(0)
+        .setBaseArrayLayer(0)
+        .setLayerCount(1)
+        .setLevelCount(1);
+
+    swapchain = Swapchain(&device.device, device.physicalDevice, instance.surface);
+    for (auto& i : depthImages)
+        i = CreateDepthImage();
+
+    graphicsQueue = device.device.getQueue(device.graphicsQueueFamilyIndex, 0);
+    command = Command(device);
+    cmdBuffer = command.cmdBuffer;
 }
 
 // Read 3D model
@@ -877,4 +677,201 @@ vk::ImageView Renderer::CreateImageView(const vk::Image& image, const vk::Format
         .setImage(image)
         .setSubresourceRange(subresource);
     return device.device.createImageView(imageViewInfo);
+}
+
+void Renderer::CreateDebugTextures() {
+    uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+    uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
+    uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
+    std::array<uint32_t, 16 * 16> checkerboardData;
+    for (size_t x = 0; x < 16; x++)
+        for (size_t y = 0; y < 16; y++)
+            checkerboardData[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
+    textures.emplace_back(CreateUploadImage(checkerboardData.data(), vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 16, 16 }, vk::ImageUsageFlagBits::eSampled));
+    textures.emplace_back(CreateUploadImage(&black, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
+    textures.emplace_back(CreateUploadImage(&white, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
+    materialIndexGroups.emplace_back(0, 1, 1);
+}
+
+// Temporary functions.
+void Renderer::PushConstant_Draw() {
+    BuildGlobalTransform();
+    glm::vec4 lightsCount(0);
+    lightsCount.x = pointLights.size();
+    lightsCount.y = spotLights.size();
+    lightsCount.z = dirLights.size();
+    // Very temporary.
+    lightsCount.w = static_cast<uint32_t>(indices.size());
+    PushConstantData pushConstant{
+        vertexTransform,
+        worldTransform,
+        lightsCount,
+        meshBuffer.vertexBufferAddress,
+        meshBuffer.indexBufferAddress,
+        materialBufferAddress,
+        pointLightBufferAddress,
+        spotLightBufferAddress,
+        dirLightBufferAddress
+    };
+    cmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
+    cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
+
+}
+void Renderer::ImGui_Draw(double frameTime) {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+    std::string positionStr = "X: " + std::to_string(position.x) + " Y: " + std::to_string(position.y) + " Z: " + std::to_string(position.z) + "\n";
+    std::string frameTimeStr = std::to_string(frameTime) + " ms | " + std::to_string(1000 / frameTime) + " fps\n";
+    ImGui::Text(positionStr.c_str());
+    ImGui::Text(frameTimeStr.c_str());
+    requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
+    if (requestNewSwapchain)
+        std::cout << "Checkbox pressed!\n";
+}
+void Renderer::LoadModels_Init() {
+    parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
+
+    auto dragonTrans = glm::mat4(1.0f);
+    dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 5.0f, 2.0f));
+    dragonTrans = glm::rotate<float>(dragonTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+    dragonTrans = glm::scale(dragonTrans, glm::vec3(0.1f));
+    LoadGLTF("assets/stanford_dragon.glb", dragonTrans);
+
+    auto helmetTrans = glm::mat4(1.0f);
+    helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
+    helmetTrans = glm::rotate<float>(helmetTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
+    LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
+
+    auto toyTrans = glm::mat4(1.0f);
+    toyTrans = glm::translate(toyTrans, glm::vec3(-3.0f, 0, 0));
+    toyTrans = glm::rotate<float>(toyTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
+    toyTrans = glm::scale(toyTrans, glm::vec3(0.005f));
+    LoadGLTF("assets/ToyCar.glb", toyTrans);
+
+    auto monkeTrans = glm::mat4(1.0f);
+    monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
+    monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+    LoadGLTF("assets/monke.glb", monkeTrans);
+
+    // Many sponzas for benchmarking.
+    for (size_t i = 0; i < 2; i++) {
+        for (size_t j = 0; j < 2; j++) {
+            for (size_t k = 0; k < /*3*/1; k++) {
+                auto sponzaTrans = glm::mat4(1.0f);
+                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
+                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+                LoadGLTF("assets/sponza.glb", sponzaTrans);
+            }
+        }
+    }
+    std::cout << "\nLoaded all models.\n";
+    std::cout << "Size of all vertices:" << sizeof(Vertex) * vertices.size() << " Bytes, indices:" << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
+}
+void Renderer::SpawnLights_Init() {
+    // xyz: 20 0 25 "Centre"
+    const auto centre = glm::vec3(20, 0, 25);
+    std::random_device randomDevice;
+    auto ranGen = std::mt19937(randomDevice());
+
+    std::uniform_int_distribution<int> posxzDistrib(-10, 60);
+    std::uniform_int_distribution<int> posyDistrib(-10, 20);
+    std::uniform_int_distribution<int> rangeDistrib(5, 30);
+    for (size_t i = 0; i < 100; i++) {
+        const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
+        const auto dir = centre - pos;
+        spotLights.emplace_back(pos, rangeDistrib(ranGen),
+            glm::vec4(glm::normalize(dir), 1),
+            glm::vec3(1),
+            0.0f, 0.95f, 0.96f);
+    }
+    pointLights.emplace_back(glm::vec3(20.0f, 0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
+    dirLights.emplace_back(glm::vec4(-1.0f, 1.0f, -1.0f, 1), glm::vec4(0.85f, 0.85f, 0.5f, 1));
+    spotLights.emplace_back(glm::vec3(-9.0f, -1.0f, 2.0f), 10.0f, glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec3(1), 0.0f, 0.95f, 0.96f);
+}
+void Renderer::UploadAll_Init() {
+    // Upload geometry and material indices.
+    if (indices.size() > 0 && vertices.size() > 0)
+        meshBuffer = UploadMesh(indices, vertices);
+    // Upload lights.
+    if (materialIndexGroups.size() > 0)
+        materialBufferAddress = UploadData<MaterialIndexGroup>(materialIndexGroups);
+    if (pointLights.size() > 0)
+        pointLightBufferAddress = UploadData<PointLight>(pointLights);
+    if (spotLights.size() > 0)
+        spotLightBufferAddress = UploadData<SpotLight>(spotLights);
+    if (dirLights.size() > 0)
+        dirLightBufferAddress = UploadData<DirLight>(dirLights);
+}
+void Renderer::CreateSamplers_Init() {
+    auto nearestSamplerInfo = vk::SamplerCreateInfo()
+        .setMagFilter(vk::Filter::eNearest)
+        .setMinFilter(vk::Filter::eNearest);
+    auto linearSamplerInfo = vk::SamplerCreateInfo()
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear);
+    auto nearLinSamplerInfo = vk::SamplerCreateInfo()
+        .setMagFilter(vk::Filter::eNearest)
+        .setMinFilter(vk::Filter::eNearest);
+    auto linNearSamplerInfo = vk::SamplerCreateInfo()
+        .setMagFilter(vk::Filter::eLinear)
+        .setMinFilter(vk::Filter::eLinear);
+
+    nearestSampler = device.device.createSampler(nearestSamplerInfo);
+    linearSampler = device.device.createSampler(linearSamplerInfo);
+}
+void Renderer::CreateDescSets_Init() {
+    // Set bindings for the push descriptor (textures are on set = 0, binding = 0).
+    auto layoutBinding = vk::DescriptorSetLayoutBinding()
+        .setBinding(0)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(textures.size())
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
+    auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
+        .setBindings(layoutBinding);
+    imageDescLayout = device.device.createDescriptorSetLayout(descriptorLayoutInfo);
+
+    // Descriptor pool.
+    auto imagePoolSize = vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eCombinedImageSampler)
+        // Change to frames in flight count.
+        .setDescriptorCount(textures.size());
+    auto imagePoolInfo = vk::DescriptorPoolCreateInfo()
+        // Change to frames in flight count.
+        .setMaxSets(1)
+        .setPoolSizes(imagePoolSize);
+    auto imagePool = device.device.createDescriptorPool(imagePoolInfo);
+
+    // Descriptor set.
+    auto imageDescAlloc = vk::DescriptorSetAllocateInfo()
+        .setDescriptorPool(imagePool)
+        .setSetLayouts(imageDescLayout);
+    imageDescSet = device.device.allocateDescriptorSets(imageDescAlloc);
+
+    // Write to descriptors.
+    std::vector<vk::DescriptorImageInfo> imageDescriptors;
+    imageDescriptors.reserve(textures.size());
+    for (size_t i = 0; i < textures.size(); i++) {
+        auto imageDescriptor = vk::DescriptorImageInfo()
+            .setSampler(nearestSampler)
+            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setImageView(textures[i].view);
+
+        imageDescriptors.emplace_back(imageDescriptor);
+    }
+    auto descWrite = vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDstSet(imageDescSet[0])
+        .setDstBinding(0)
+        .setDescriptorCount(imageDescriptors.size())
+        .setImageInfo(imageDescriptors);
+    std::array<vk::WriteDescriptorSet, 1> descWrites{
+        descWrite
+    };
+
+    std::function<void()> descFunc = [&]() { device.device.updateDescriptorSets(descWrites, nullptr); };
+    SubmitImmediate(descFunc);
+    device.device.resetCommandPool(command.cmdPool);
 }

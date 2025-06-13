@@ -107,15 +107,27 @@ public:
 	float yaw = 0;
 	float pitch = 0;
 private:
-	void Present(uint32_t imageIndex);
-	void SubmitDraw();
-	void SubmitImmediate(std::function<void()>& func);
-	void BeginRendering(uint32_t imageIndex);
+	// Temporary abstractions.
+	void PushConstant_Draw();
+	void ImGui_Draw(double frameTime);
+	void LoadModels_Init();
+	void SpawnLights_Init();
+	void UploadAll_Init();
+	void CreateSamplers_Init();
+	void CreateDescSets_Init();
+
+	void SubmitAndPresent(uint32_t imageIndex);
+	void SubmitImmediate(const std::function<void()>& func);
+	void BeginRendering(const uint32_t imageIndex);
+	bool AquireImageIndex(uint32_t& index);
 	bool doVsync = true;
 	bool requestNewSwapchain = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
+	void CreatePipeline();
+	void CreateFencesAndSemaphores();
+	void InitMainObjects(SDL_Window* window, std::atomic<bool>* ready);
 
 	GPUMeshBuffer UploadMesh(std::span<glm::uvec4> indices, std::span<Vertex> vertices);
 	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
@@ -125,6 +137,8 @@ private:
 	AllocatedImage CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
 	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource);
 
+	// Textures.
+	void CreateDebugTextures();
 	std::vector<vk::DescriptorSet> imageDescSet;
 	std::vector<AllocatedImage> textures;
 	vk::DescriptorSetLayout imageDescLayout;
@@ -147,8 +161,8 @@ private:
 	vk::DeviceAddress dirLightBufferAddress;
 	glm::mat4 vertexTransform;
 	glm::mat4 worldTransform;
-	glm::vec3 position;
-	glm::vec3 direction;
+	glm::vec3 position  = glm::vec3(0);
+	glm::vec3 direction = glm::vec3(0, 0, 1.0f);
 
 	ImVec4 clearColorUI;
 
