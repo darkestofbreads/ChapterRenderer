@@ -125,6 +125,7 @@ private:
 	AllocatedImage CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
 	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource);
 
+	std::vector<vk::DescriptorSet> imageDescSet;
 	std::vector<AllocatedImage> textures;
 	vk::DescriptorSetLayout imageDescLayout;
 	vk::Sampler nearestSampler;

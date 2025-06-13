@@ -177,14 +177,54 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
         .setDescriptorCount(textures.size())
         .setStageFlags(vk::ShaderStageFlagBits::eFragment);
     auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
-        .setBindings(layoutBinding)
-        .setFlags(vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptor);
+        .setBindings(layoutBinding);
     imageDescLayout = device.device.createDescriptorSetLayout(descriptorLayoutInfo);
+
+    // Descriptor pool.
+    auto imagePoolSize = vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eCombinedImageSampler)
+        // Change to frames in flight count.
+        .setDescriptorCount(textures.size());
+    auto imagePoolInfo = vk::DescriptorPoolCreateInfo()
+        // Change to frames in flight count.
+        .setMaxSets(1)
+        .setPoolSizes(imagePoolSize);
+    auto imagePool = device.device.createDescriptorPool(imagePoolInfo);
+
+    // Descriptor set.
+    auto imageDescAlloc = vk::DescriptorSetAllocateInfo()
+        .setDescriptorPool(imagePool)
+        .setSetLayouts(imageDescLayout);
+    imageDescSet = device.device.allocateDescriptorSets(imageDescAlloc);
+
+    // Write to descriptors.
+    std::vector<vk::DescriptorImageInfo> imageDescriptors;
+    imageDescriptors.reserve(textures.size());
+    for (size_t i = 0; i < textures.size(); i++) {
+        auto imageDescriptor = vk::DescriptorImageInfo()
+            .setSampler(nearestSampler)
+            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setImageView(textures[i].view);
+
+        imageDescriptors.emplace_back(imageDescriptor);
+    }
+    auto descWrite = vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDstSet(imageDescSet[0])
+        .setDstBinding(0)
+        .setDescriptorCount(imageDescriptors.size())
+        .setImageInfo(imageDescriptors);
+    std::array<vk::WriteDescriptorSet, 1> descWrites{
+        descWrite
+    };
+
+    std::function<void()> descFunc = [&](){ device.device.updateDescriptorSets(descWrites, nullptr); };
+    SubmitImmediate(descFunc);
+    device.device.resetCommandPool(command.cmdPool);
 
     // Shader object.
     shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
-    //shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
-
+    
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
         .setSetLayouts(imageDescLayout);
@@ -244,34 +284,8 @@ void Renderer::Draw() {
         dirLightBufferAddress
     };
 
-    std::vector<vk::DescriptorImageInfo> imageDescriptors;
-    imageDescriptors.reserve(textures.size());
-    for (size_t i = 0; i < textures.size(); i++) {
-        auto imageDescriptor = vk::DescriptorImageInfo()
-            .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImageView(textures[i].view);
+    cmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
 
-        imageDescriptors.emplace_back(imageDescriptor);
-    }
-
-    auto descWrite = vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDstBinding(0)
-        .setDescriptorCount(1)
-        .setImageInfo(imageDescriptors);
-    std::array<vk::WriteDescriptorSet, 1> descWrites{
-        descWrite
-    };
-
-    auto pushDescInfo = vk::PushDescriptorSetInfo()
-        .setLayout(pipelineLayout)
-        .setDescriptorWrites(descWrites)
-        .setDescriptorWriteCount(descWrites.size())
-        .setSet(0)
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-
-    cmdBuffer.pushDescriptorSet2(pushDescInfo);
     cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
 
     // Draw image.
