@@ -175,14 +175,15 @@ private:
 	Timer frameTimer;
 
 	Command command;
-	vk::CommandBuffer cmdBuffer;
 	vk::Queue graphicsQueue;
 	vk::PipelineLayout pipelineLayout;
 	vk::detail::DispatchLoaderDynamic dldid;
 
-	vk::Semaphore imageAquiredSemaphore;
-	vk::Semaphore renderFinishedSemaphore;
-	vk::Fence renderFinishedFence;
+	uint32_t currentFrame = 0;
+	std::array<vk::CommandBuffer, 2> cmdBuffers;
+	std::array <vk::Semaphore, 2> imageAquiredSemaphores;
+	std::array <vk::Semaphore, 2> renderFinishedSemaphores;
+	std::array <vk::Fence, 2> inFlightFences;
 	vk::Fence immediateFence;
 
 	std::vector<Vertex> vertices;

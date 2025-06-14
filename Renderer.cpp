@@ -22,6 +22,8 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
+    command.SetCurrentFrame(currentFrame);
+
     double frameTime = frameTimer.GetMilliseconds();
     frameTimer.Reset();
     uint32_t imageIndex;
@@ -30,13 +32,13 @@ void Renderer::Draw() {
     ImGui_Draw(frameTime);
     BeginRendering(imageIndex);
     PushConstant_Draw();
-    cmdBuffer.bindShadersEXT(meshStages, shaders, dldid);
+    cmdBuffers[currentFrame].bindShadersEXT(meshStages, shaders, dldid);
     // Launch one invocation per meshlet,
     // then inside each invocation, emit one mesh shader each primitive.
     // Draw meshes.
-    cmdBuffer.drawMeshTasksEXT(1, 1, 1, dldid);
+    cmdBuffers[currentFrame].drawMeshTasksEXT(1, 1, 1, dldid);
     ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(command.cmdBuffer));
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(cmdBuffers[currentFrame]));
 
     SubmitAndPresent(imageIndex);
 }
@@ -60,7 +62,7 @@ void Renderer::BuildGlobalTransform() {
 }
 
 bool Renderer::AquireImageIndex(uint32_t& index) {
-    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphore, nullptr);
+    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphores[currentFrame], nullptr);
     const auto imageResult = imageNext.result;
     index = imageNext.value;
     if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
@@ -73,7 +75,7 @@ bool Renderer::AquireImageIndex(uint32_t& index) {
 void Renderer::BeginRendering(const uint32_t imageIndex) {
     auto beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    cmdBuffer.begin(beginInfo);
+    cmdBuffers[currentFrame].begin(beginInfo);
 
     command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eColorAttachmentWrite);
     command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
@@ -88,12 +90,12 @@ void Renderer::BeginRendering(const uint32_t imageIndex) {
         .setWidth(swapchain.renderExtend.width)
         .setX(0)
         .setY(0);
-    cmdBuffer.setViewportWithCount(viewport);
+    cmdBuffers[currentFrame].setViewportWithCount(viewport);
 
     auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
         .setOffset({ 0 ,0 });
-    cmdBuffer.setScissorWithCount(scissor);
+    cmdBuffers[currentFrame].setScissorWithCount(scissor);
 
     auto colorAttachment = vk::RenderingAttachmentInfo()
         .setLoadOp(vk::AttachmentLoadOp::eClear)
@@ -103,9 +105,9 @@ void Renderer::BeginRendering(const uint32_t imageIndex) {
         .setImageView(swapchain.imageViews[imageIndex])
         .setResolveMode(vk::ResolveModeFlagBits::eNone);
 
-    cmdBuffer.setDepthTestEnable(vk::True);
-    cmdBuffer.setDepthWriteEnable(vk::True);
-    cmdBuffer.setDepthCompareOp(vk::CompareOp::eLessOrEqual);
+    cmdBuffers[currentFrame].setDepthTestEnable(vk::True);
+    cmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
+    cmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLessOrEqual);
 
     auto depthAttachment = vk::RenderingAttachmentInfo()
         .setLoadOp(vk::AttachmentLoadOp::eClear)
@@ -120,45 +122,47 @@ void Renderer::BeginRendering(const uint32_t imageIndex) {
         .setExtent(swapchain.renderExtend);
 
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
-    cmdBuffer.beginRendering(renderInfo);
+    cmdBuffers[currentFrame].beginRendering(renderInfo);
 }
 void Renderer::SubmitImmediate(const std::function<void()>& func) {
     device.device.resetFences(immediateFence);
 
     vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    cmdBuffer.begin(beginInfo);
+    cmdBuffers[0].begin(beginInfo);
+    cmdBuffers[1].begin(beginInfo);
 
     func();
 
-    cmdBuffer.end();
+    cmdBuffers[0].end();
+    cmdBuffers[1].end();
 
     vk::SubmitInfo submitInfo = vk::SubmitInfo()
-        .setCommandBuffers(cmdBuffer);
+        .setCommandBuffers(cmdBuffers);
     graphicsQueue.submit(submitInfo, immediateFence);
     device.device.waitForFences(immediateFence, false, UINT64_MAX);
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     // End rendering.
-    cmdBuffer.endRendering();
+    cmdBuffers[currentFrame].endRendering();
     command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
     command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
-    cmdBuffer.end();
+    cmdBuffers[currentFrame].end();
     // Submit work.
     vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo submitInfo = vk::SubmitInfo()
-        .setCommandBuffers(cmdBuffer)
-        .setWaitSemaphores(imageAquiredSemaphore)
-        .setSignalSemaphores(renderFinishedSemaphore)
+        .setCommandBuffers(cmdBuffers[currentFrame])
+        .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
+        .setSignalSemaphores(renderFinishedSemaphores[currentFrame])
         .setWaitDstStageMask(waitStage);
-    graphicsQueue.submit(submitInfo, renderFinishedFence);
+    graphicsQueue.submit(submitInfo, inFlightFences[currentFrame]);
 
     // Present image.
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
         .setSwapchains(swapchain.swapchain)
         .setImageIndices(imageIndex)
-        .setWaitSemaphores(renderFinishedSemaphore);
+        .setWaitSemaphores(renderFinishedSemaphores[currentFrame]);
     try {
         graphicsQueue.presentKHR(info);
     }
@@ -167,15 +171,16 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     }
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
-        device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
-        device.device.resetFences(renderFinishedFence);
+        device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+        device.device.resetFences  (inFlightFences[currentFrame]);
         device.device.resetCommandPool(command.cmdPool);
         swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
-    device.device.waitForFences(renderFinishedFence, false, UINT64_MAX);
-    device.device.resetFences(renderFinishedFence);
-    device.device.resetCommandPool(command.cmdPool);
+    currentFrame = (currentFrame + 1) % 2;
+    device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+    device.device.resetFences(inFlightFences[currentFrame]);
+    cmdBuffers[currentFrame].reset();
 }
 
 void Renderer::InitImGui(SDL_Window* window) {
@@ -220,12 +225,14 @@ void Renderer::CreatePipeline() {
 }
 void Renderer::CreateFencesAndSemaphores() {
     auto semaphoreInfo = vk::SemaphoreCreateInfo();
-    imageAquiredSemaphore = device.device.createSemaphore(semaphoreInfo);
-    renderFinishedSemaphore = device.device.createSemaphore(semaphoreInfo);
+    imageAquiredSemaphores  [0] = device.device.createSemaphore(semaphoreInfo);
+    renderFinishedSemaphores[0] = device.device.createSemaphore(semaphoreInfo);
+    imageAquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
+    renderFinishedSemaphores[1] = device.device.createSemaphore(semaphoreInfo);
 
-    auto fenceInfo = vk::FenceCreateInfo();
-    renderFinishedFence = device.device.createFence(fenceInfo);
-    immediateFence = device.device.createFence(fenceInfo);
+    inFlightFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
+    inFlightFences[0] = device.device.createFence(vk::FenceCreateInfo());
+    immediateFence    = device.device.createFence(vk::FenceCreateInfo());
 }
 void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     frameTimer = Timer();
@@ -259,7 +266,8 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
 
     graphicsQueue = device.device.getQueue(device.graphicsQueueFamilyIndex, 0);
     command = Command(device);
-    cmdBuffer = command.cmdBuffer;
+    cmdBuffers[0] = command.cmdBuffer[0];
+    cmdBuffers[1] = command.cmdBuffer[1];
 }
 
 // Read 3D model
@@ -501,7 +509,7 @@ vk::DeviceAddress Renderer::UploadData(std::span<T> data) {
     std::function<void()> func = [&]() {
         auto region = vk::BufferCopy()
             .setSize(size);
-        cmdBuffer.copyBuffer(stageBuffer.buffer, buffer.buffer, region);
+        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
         };
     SubmitImmediate(func);
     device.device.resetCommandPool(command.cmdPool);
@@ -557,12 +565,12 @@ GPUMeshBuffer Renderer::UploadMesh(std::span<glm::uvec4> indices, std::span<Vert
     std::function<void()> func = [&]() {
         auto vertRegion = vk::BufferCopy()
             .setSize(vertSize);
-        cmdBuffer.copyBuffer(stageBuffer.buffer, meshbuffer.vertexBuffer.buffer, vertRegion);
+        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.vertexBuffer.buffer, vertRegion);
 
         auto indexRegion = vk::BufferCopy()
             .setSrcOffset(vertSize)
             .setSize(indiSize);
-        cmdBuffer.copyBuffer(stageBuffer.buffer, meshbuffer.indexBuffer.buffer, indexRegion);
+        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.indexBuffer.buffer, indexRegion);
     };
     SubmitImmediate(func);
 
@@ -652,7 +660,7 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
             .setImageExtent(vk::Extent3D(extend, 1))
             .setImageSubresource(imageSubresource);
 
-        command.cmdBuffer.copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
+        command.cmdBuffer[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
         command.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
             vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderSampledRead);
     };
@@ -713,8 +721,8 @@ void Renderer::PushConstant_Draw() {
         spotLightBufferAddress,
         dirLightBufferAddress
     };
-    cmdBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
-    cmdBuffer.pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
+    cmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
+    cmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
 
 }
 void Renderer::ImGui_Draw(double frameTime) {
