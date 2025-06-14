@@ -48,6 +48,11 @@ void Renderer::Move(float forward, float sideward) {
     position += forward * direction;
     position -= glm::normalize(glm::cross(direction, glm::vec3(0, 1, 0))) * sideward;
 }
+void Renderer::Teleport(glm::vec3 pos, glm::vec3 direction) {
+    position = pos;
+    yaw = -90;
+    pitch = 0;
+}
 void Renderer::BuildGlobalTransform() {
     direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
     direction.y = sin(glm::radians(pitch));

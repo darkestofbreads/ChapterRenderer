@@ -104,6 +104,7 @@ public:
 	void Draw();
 
 	void Move(float forward, float sideward);
+	void Teleport(glm::vec3 pos, glm::vec3 direction = glm::vec3(0, 0, 1));
 	float yaw = 0;
 	float pitch = 0;
 private:

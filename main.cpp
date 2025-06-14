@@ -48,12 +48,16 @@ void doRendering(std::atomic<bool>* stillRunning, std::atomic<bool>* ready) {
         float forward  = input.IsHeld(SDL_SCANCODE_W) ? velocity : input.IsHeld(SDL_SCANCODE_S) ? -velocity : 0;
         float sideward = input.IsHeld(SDL_SCANCODE_A) ? velocity : input.IsHeld(SDL_SCANCODE_D) ? -velocity : 0;
         renderer.Move(forward, sideward);
-
+        
         if (input.IsPressed(SDL_SCANCODE_F)) {
             grabMouse = !grabMouse;
             SDL_SetWindowMouseGrab(window, grabMouse);
             SDL_SetWindowRelativeMouseMode(window, grabMouse);
         }
+        // Currently the "worst case benchmarking point".
+        if (input.IsPressed(SDL_SCANCODE_G))
+            renderer.Teleport(glm::vec3(24, 4, 14.5f));
+
         // Send position and rotation to logic handler.
 
         renderer.Draw();
