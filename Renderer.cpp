@@ -12,6 +12,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
     LoadModels_Init();
     SpawnLights_Init();
+    OptimizeMesh();
     UploadAll_Init();
 
     CreateDescSets_Init();
@@ -421,6 +422,8 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     parts.Reset();
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
+        MeshView meshView;
+        meshView.start = indices.size();
         for (const auto& primitive : mesh.primitives) {
             size_t prevVertexSize = vertices.size();
             size_t prevIndexSize  = indices.size();
@@ -465,8 +468,8 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             const auto& indBuffer     = asset.buffers[indBufferView.bufferIndex];
             const auto& indData       = get<fastgltf::sources::Array>(indBuffer.data);
 
-            size_t triangleCount      = indAcr.count / 3;
-            indices.resize(triangleCount + indices.size());
+            size_t indexCount = indAcr.count;
+            indices.resize(indexCount + indices.size());
 
             size_t count = 0;
             // If possible, the GLTF will use uint16 to reduce file size.
@@ -474,27 +477,103 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
                 std::vector<uint16_t> rawIndices(indAcr.count);
                 std::memcpy(rawIndices.data(), indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint16_t) * rawIndices.size());
 
-                for (size_t i = 0; i < triangleCount; i++) {
-                    indices[prevIndexSize + i] =
-                        glm::uvec4(prevVertexSize + static_cast<uint32_t>(rawIndices[count]), prevVertexSize + static_cast<uint32_t>(rawIndices[count + 1]),
-                                   prevVertexSize + static_cast<uint32_t>(rawIndices[count + 2]), virtualMaterialIndex);
-                    count += 3;
+                for (size_t i = 0; i < indexCount; i++) {
+                    indices[prevIndexSize + i] = prevVertexSize + static_cast<uint32_t>(rawIndices[i]);
                 }
             }
             else {
                 std::vector<uint32_t> rawIndices(indAcr.count);
                 std::memcpy(rawIndices.data(), indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint32_t) * rawIndices.size());
 
-                for (size_t i = 0; i < triangleCount; i++) {
-                    indices[prevIndexSize + i] = glm::uvec4(prevVertexSize + rawIndices[count], prevVertexSize + rawIndices[count + 1],
-                                                            prevVertexSize + rawIndices[count + 2], virtualMaterialIndex);
-                    count += 3;
+                // TODO: Do memcpy instead.
+                for (size_t i = 0; i < indexCount; i++) {
+                    indices[prevIndexSize + i] = prevVertexSize + rawIndices[i];
                 }
             }
+            meshView.end = indices.size() - 1;
+            meshView.filler = 0;
+            meshView.material = 0;
+            meshViews.emplace_back(meshView);
+
             std::cout << "Took " << parts.GetMilliseconds() << " ms to format and add indices." << "\n";
         }
     }
     std::cout << "Took " << total.GetMilliseconds() << " ms to fully load model." << "\n\n";
+}
+void Renderer::OptimizeMesh() {
+    {
+        // Indexing.
+        Timer timer = Timer();
+        std::vector<uint32_t> remap(indices.size());
+        std::vector<uint32_t> newIndices(indices.size());
+
+        size_t oldVertCount = vertices.size();
+        size_t vertCount    = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
+        std::vector<Vertex> newVertices(vertCount);
+
+        meshopt_remapIndexBuffer (newIndices.data(), indices.data(), indices.size(), remap.data());
+        meshopt_remapVertexBuffer(newVertices.data(), vertices.data(), oldVertCount, sizeof(Vertex), remap.data());
+        std::cout << "Reduced vertex count by " << oldVertCount - newVertices.size() << " in " << timer.GetMilliseconds() << " ms" << "\n";
+        vertices = newVertices;
+        indices  = newIndices;
+    }
+    {
+        // Vertex cache optimization. (Questionable, seems to degrade performance)
+        Timer timer = Timer();
+        meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), vertices.size());
+        std::cout << "Reordered indices in " << timer.GetMilliseconds() << " ms" << "\n";
+    }
+    std::vector<float> positions(vertices.size() * 3);
+    for (size_t i = 0; i < vertices.size(); i++) {
+        positions[i] = vertices[i].Position.x;
+        positions[i + 1] = vertices[i].Position.y;
+        positions[i + 2] = vertices[i].Position.z;
+    }
+    {
+        // Overdraw optimization.
+        Timer timer = Timer();
+        meshopt_optimizeOverdraw(indices.data(), indices.data(), indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, 1.05f);
+        std::cout << "Optimized overdraw in " << timer.GetMilliseconds() << " ms" << "\n";
+    }
+    {
+        // Vertex fetch optimization.
+        Timer timer = Timer();
+        meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
+        std::cout << "Reordered vertices in " << timer.GetMilliseconds() << " ms" << "\n";
+    }
+    {
+        // Build and optimize meshlets.
+        Timer timer = Timer();
+        const size_t maxVertices  = 64;
+        const size_t maxTriangles = 124;
+        const float  coneWeight   = 0.25f;
+        size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
+        std::vector<meshopt_Meshlet> meshlets(maxMeshlets);
+        std::vector<uint32_t>        meshletVertices(maxMeshlets * maxVertices);
+        std::vector<uint8_t>         meshletTriangles(maxMeshlets * maxTriangles * 3);
+
+        size_t meshletCount = meshopt_buildMeshlets(meshlets.data(), meshletVertices.data(), meshletTriangles.data(), indices.data(),
+            indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
+
+        const meshopt_Meshlet& lastElement = meshlets[meshletCount - 1];
+        meshletVertices.resize(lastElement.vertex_offset + lastElement.vertex_count);
+        meshletTriangles.resize(lastElement.triangle_offset + ((lastElement.triangle_count * 3 + 3) & ~3));
+        std::cout << "Built meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
+        timer.Reset();
+        meshopt_optimizeMeshlet(meshletVertices.data(), meshletTriangles.data(), lastElement.triangle_count, lastElement.vertex_count);
+        std::cout << "Optimized meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
+        timer.Reset();
+        meshletsAddress         = UploadData<meshopt_Meshlet>(meshlets);
+        meshletVerticesAddress  = UploadData<uint32_t>(meshletVertices);
+        meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
+        std::cout << "Uploaded meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
+    }
+    {
+        // Shadow indexing.
+    }
+    {
+        // Vertex quantization.
+    }
 }
 
 template<typename T>
@@ -538,10 +617,10 @@ AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsa
     allocBuffer.buffer = vk::Buffer(buffer);
     return allocBuffer;
 }
-GPUMeshBuffer Renderer::UploadMesh(std::span<glm::uvec4> indices, std::span<Vertex> vertices) {
+GPUMeshBuffer Renderer::UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) {
     // GPU only buffers.
     const size_t vertSize = vertices.size() * sizeof(Vertex);
-    const size_t indiSize =  indices.size() * sizeof(glm::uvec4);
+    const size_t indiSize =  indices.size() * sizeof(uint32_t);
 
     auto vertBuffer = CreateBuffer(vertSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst |
         vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
@@ -709,26 +788,32 @@ void Renderer::CreateDebugTextures() {
 // Temporary functions.
 void Renderer::PushConstant_Draw() {
     BuildGlobalTransform();
-    glm::vec4 lightsCount(0);
-    lightsCount.x = pointLights.size();
-    lightsCount.y = spotLights.size();
-    lightsCount.z = dirLights.size();
-    // Very temporary.
-    lightsCount.w = static_cast<uint32_t>(indices.size());
+    SceneInfo sceneInfo;
+    sceneInfo.pointLightCount     = pointLights.size();
+    sceneInfo.spotLightCount      = spotLights.size();
+    sceneInfo.directionLightCount = dirLights.size();
+    sceneInfo.meshCount           = meshViews.size();
+
     PushConstantData pushConstant{
         vertexTransform,
         worldTransform,
-        lightsCount,
+        sceneInfo,
+
+        meshletsAddress,
+        meshletVerticesAddress,
+        meshletTrianglesAddress,
+
+        meshViewBufferAddress,
         meshBuffer.vertexBufferAddress,
         meshBuffer.indexBufferAddress,
         materialBufferAddress,
+
         pointLightBufferAddress,
         spotLightBufferAddress,
         dirLightBufferAddress
     };
     cmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
     cmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
-
 }
 void Renderer::ImGui_Draw(double frameTime) {
     ImGui_ImplVulkan_NewFrame();
@@ -781,13 +866,13 @@ void Renderer::LoadModels_Init() {
         }
     }
     std::cout << "\nLoaded all models.\n";
-    std::cout << "Size of all vertices:" << sizeof(Vertex) * vertices.size() << " Bytes, indices:" << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
+    std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes, indices: " << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
 }
 void Renderer::SpawnLights_Init() {
     // xyz: 20 0 25 "Centre"
     const auto centre = glm::vec3(20, 0, 25);
     std::random_device randomDevice;
-    auto ranGen = std::mt19937(randomDevice());
+    auto ranGen = std::mt19937(3529725061);
 
     std::uniform_int_distribution<int> posxzDistrib(-10, 60);
     std::uniform_int_distribution<int> posyDistrib(-10, 20);
@@ -808,15 +893,20 @@ void Renderer::UploadAll_Init() {
     // Upload geometry and material indices.
     if (indices.size() > 0 && vertices.size() > 0)
         meshBuffer = UploadMesh(indices, vertices);
-    // Upload lights.
+    if (meshViews.size() > 0)
+        meshViewBufferAddress = UploadData<MeshView>(meshViews);
+
+    // Upload materials.
     if (materialIndexGroups.size() > 0)
-        materialBufferAddress = UploadData<MaterialIndexGroup>(materialIndexGroups);
+        materialBufferAddress   = UploadData<MaterialIndexGroup>(materialIndexGroups);
+
+    // Upload lights.
     if (pointLights.size() > 0)
         pointLightBufferAddress = UploadData<PointLight>(pointLights);
     if (spotLights.size() > 0)
-        spotLightBufferAddress = UploadData<SpotLight>(spotLights);
+        spotLightBufferAddress  = UploadData<SpotLight>(spotLights);
     if (dirLights.size() > 0)
-        dirLightBufferAddress = UploadData<DirLight>(dirLights);
+        dirLightBufferAddress   = UploadData<DirLight>(dirLights);
 }
 void Renderer::CreateSamplers_Init() {
     auto nearestSamplerInfo = vk::SamplerCreateInfo()

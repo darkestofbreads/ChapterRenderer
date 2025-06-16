@@ -1,6 +1,27 @@
 #ifndef _COMMON_H_
 #define _COMMON_H_
 
+struct Meshlet {
+	uint vertexOffset;
+	uint triangleOffset;
+	uint vertexCount;
+	uint triangleCount;
+};
+
+struct MeshView {
+	int start;
+	int end;
+	int material;
+	int filler;
+};
+
+struct SceneInfo {
+	uint meshCount;
+	uint pointLightCount;
+	uint spotLightCount;
+	uint directionLightCount;
+};
+
 struct Material {
 	uint diffuse;
 	uint metallicRoughness;

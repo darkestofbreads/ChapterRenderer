@@ -64,13 +64,32 @@ struct SpotLight {
 	float fillerA;
 	float fillerB;
 };
+struct MeshView {
+	uint32_t start;
+	uint32_t end;
+	uint32_t material;
+	uint32_t filler;
+};
+struct SceneInfo {
+	uint32_t meshCount;
+	uint32_t pointLightCount;
+	uint32_t spotLightCount;
+	uint32_t directionLightCount;
+};
 struct PushConstantData {
 	glm::mat4 projView;
 	glm::mat4 worldTransform;
-	glm::vec4 lightsCount;
+	SceneInfo sceneInfo;
+
+	vk::DeviceAddress meshletsAddress;
+	vk::DeviceAddress meshletVerticesAddress;
+	vk::DeviceAddress meshletTrianglesAddress;
+
+	vk::DeviceAddress meshViewBufferAddress;
 	vk::DeviceAddress vertexBufferAddress;
 	vk::DeviceAddress indexBufferAddress;
 	vk::DeviceAddress materialBufferAddress;
+
 	vk::DeviceAddress pointLightBufferAddress;
 	vk::DeviceAddress spotLightBufferAddress;
 	vk::DeviceAddress dirLightBufferAddress;
@@ -116,6 +135,7 @@ private:
 	void UploadAll_Init();
 	void CreateSamplers_Init();
 	void CreateDescSets_Init();
+	void OptimizeMesh();
 
 	void SubmitAndPresent(uint32_t imageIndex);
 	void SubmitImmediate(const std::function<void()>& func);
@@ -130,7 +150,7 @@ private:
 	void CreateFencesAndSemaphores();
 	void InitMainObjects(SDL_Window* window, std::atomic<bool>* ready);
 
-	GPUMeshBuffer UploadMesh(std::span<glm::uvec4> indices, std::span<Vertex> vertices);
+	GPUMeshBuffer UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
 
 	AllocatedImage CreateDepthImage();
@@ -156,6 +176,11 @@ private:
 	template<typename T>
 	vk::DeviceAddress UploadData(std::span<T> data);
 
+	vk::DeviceAddress meshletsAddress;
+	vk::DeviceAddress meshletVerticesAddress;
+	vk::DeviceAddress meshletTrianglesAddress;
+
+	vk::DeviceAddress meshViewBufferAddress;
 	vk::DeviceAddress materialBufferAddress;
 	vk::DeviceAddress pointLightBufferAddress;
 	vk::DeviceAddress spotLightBufferAddress;
@@ -187,12 +212,17 @@ private:
 	std::array <vk::Fence, 2> inFlightFences;
 	vk::Fence immediateFence;
 
-	std::vector<Vertex> vertices;
+	std::vector<meshopt_Meshlet>	meshlets;
+	std::vector<uint32_t>			meshletVertices;
+	std::vector<uint8_t>			meshletTriangles;
+	std::vector<MeshView>			meshViews;
+	std::vector<Vertex>				vertices;
 	std::vector<MaterialIndexGroup> materialIndexGroups;
-	std::vector<glm::uvec4> indices;
-	std::vector<PointLight> pointLights;
-	std::vector<SpotLight> spotLights;
-	std::vector<DirLight> dirLights;
+	std::vector<uint32_t>			materialIndices;
+	std::vector<uint32_t>			indices;
+	std::vector<PointLight>			pointLights;
+	std::vector<SpotLight>			spotLights;
+	std::vector<DirLight>			dirLights;
 
 	std::vector<vk::ShaderEXT> shaders;
 

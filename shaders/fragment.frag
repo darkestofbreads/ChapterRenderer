@@ -2,6 +2,7 @@
 
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_8bit_storage : enable
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.h"
@@ -13,11 +14,21 @@ layout(location = 4) in vec3 normal;
 
 layout(set = 0, binding = 0) uniform sampler2D textures[];
 
+layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
+	Meshlet meshlets[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletVertexBuffer{ 
+	uint meshletVertices[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{ 
+	uint8_t meshletTriangles[];
+};
+
 layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
 	Vertex vertices[];
 };
 layout(buffer_reference, std430) readonly buffer IndexBuffer{
-	uvec4 indices[];
+	uint indices[];
 };
 layout(buffer_reference, std430) readonly buffer MaterialBuffer{
 	Material materials[];
@@ -31,17 +42,24 @@ layout(buffer_reference, std430) readonly buffer DirLightBuffer{
 layout(buffer_reference, std430) readonly buffer SpotLightBuffer{
 	SpotLight spotLights[];
 };
+layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
+	MeshView meshViews[];
+};
 layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 worldTransform;
+	SceneInfo sceneInfo;
 
-	// Pointlight, spotlight, dirlight, meshlight count.
-	vec4 lightsCount;
+	MeshletBuffer meshlets;
+	MeshletVertexBuffer meshletVertices;
+	MeshletTriangleBuffer meshletTriangles;
 
+	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
 	IndexBuffer indexBuffer;
 	MaterialBuffer materialBuffer;
+
 	PointLightBuffer pointLightBuffer;
 	SpotLightBuffer spotLightBuffer;
 	DirLightBuffer dirLightBuffer;
@@ -152,18 +170,18 @@ void main() {
 
 	// Lighting calculations.
 	// Possibly move updates of light positions and normals to a compute shader.
-	for(int i = 0; i < lightsCount.x; i++) {
+	for(int i = 0; i < sceneInfo.pointLightCount; i++) {
 			PointLight pointLight = pointLightBuffer.pointLights[i];
 			pointLight.pos = (worldTransform * vec4(pointLight.pos, 1)).xyz;
 			fragment += CalcPointLight(pointLight, pos, N, difFrag.xyz, metallicRoughness);
 	}
-	for(int i = 0; i < lightsCount.y; i++) {
+	for(int i = 0; i < sceneInfo.spotLightCount; i++) {
 			SpotLight spotLight = spotLightBuffer.spotLights[i];
 			spotLight.pos = (worldTransform * vec4(spotLight.pos, 1)).xyz;
 			spotLight.lightDir = normalTransform * spotLight.lightDir;
 			fragment += CalcSpotLight(spotLight, pos, N, difFrag.xyz, metallicRoughness);
 	}
-	for(int i = 0; i < lightsCount.z; i++) {
+	for(int i = 0; i < sceneInfo.directionLightCount; i++) {
 			DirLight dirLight = dirLightBuffer.dirLights[i];
 			dirLight.lightDir = normalTransform * dirLight.lightDir;
 			fragment += CalcDirLight(dirLight, pos, N, difFrag.xyz, metallicRoughness);
