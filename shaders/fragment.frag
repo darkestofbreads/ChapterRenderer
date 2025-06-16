@@ -2,7 +2,7 @@
 
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_buffer_reference : require
-#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_8bit_storage : require
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.h"
@@ -51,7 +51,7 @@ layout(push_constant, std430) uniform constant
 	mat4 worldTransform;
 	SceneInfo sceneInfo;
 
-	MeshletBuffer meshlets;
+	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
 

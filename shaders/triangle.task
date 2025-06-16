@@ -2,7 +2,7 @@
 
 #extension GL_EXT_mesh_shader : require
 #extension GL_EXT_buffer_reference : require
-#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_8bit_storage : require
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.h"
@@ -45,7 +45,7 @@ layout(push_constant, std430) uniform constant
 	mat4 worldTransform;
 	SceneInfo sceneInfo;
 
-	MeshletBuffer meshlets;
+	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
 
@@ -59,8 +59,16 @@ layout(push_constant, std430) uniform constant
 	DirLightBuffer dirLightBuffer;
 };
 
-void main() {
-	int indexCount = meshViewBuffer.meshViews[sceneInfo.meshCount - 1].end;
+struct Payload {
+	uint vertexOffset;
+	uint triangleOffset;
+};
+taskPayloadSharedEXT Payload payloadOut;
 
-	EmitMeshTasksEXT(indexCount / 3, 1, 1);
+void main() {
+	Meshlet meshlet = meshletBuffer.meshlets[gl_WorkGroupID.x];
+	payloadOut.vertexOffset   = meshlet.vertexOffset;
+	payloadOut.triangleOffset = meshlet.triangleOffset;
+
+	EmitMeshTasksEXT(meshlet.triangleCount, 1, 1);
 }

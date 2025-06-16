@@ -44,6 +44,8 @@ Device::Device(vk::Instance& instance) {
 
     // Chain of configured extension features.
 
+    auto vulk12Features = vk::PhysicalDeviceVulkan12Features()
+        .setStorageBuffer8BitAccess(vk::True);
     auto unusedAttachmentsFeatures = vk::PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT()
         .setDynamicRenderingUnusedAttachments(vk::True);
     // KHR version explicitly required for ImGui.

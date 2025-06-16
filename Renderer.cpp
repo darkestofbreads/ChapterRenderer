@@ -37,7 +37,7 @@ void Renderer::Draw() {
     // Launch one invocation per meshlet,
     // then inside each invocation, emit one mesh shader each primitive.
     // Draw meshes.
-    cmdBuffers[currentFrame].drawMeshTasksEXT(1, 1, 1, dldid);
+    cmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(cmdBuffers[currentFrame]));
 
@@ -548,9 +548,9 @@ void Renderer::OptimizeMesh() {
         const size_t maxTriangles = 124;
         const float  coneWeight   = 0.25f;
         size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
-        std::vector<meshopt_Meshlet> meshlets(maxMeshlets);
-        std::vector<uint32_t>        meshletVertices(maxMeshlets * maxVertices);
-        std::vector<uint8_t>         meshletTriangles(maxMeshlets * maxTriangles * 3);
+        meshlets         = std::vector<meshopt_Meshlet>(maxMeshlets);
+        meshletVertices  = std::vector<uint32_t>(maxMeshlets * maxVertices);
+        meshletTriangles = std::vector<uint8_t>(maxMeshlets * maxTriangles * 3);
 
         size_t meshletCount = meshopt_buildMeshlets(meshlets.data(), meshletVertices.data(), meshletTriangles.data(), indices.data(),
             indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
@@ -560,9 +560,10 @@ void Renderer::OptimizeMesh() {
         meshletTriangles.resize(lastElement.triangle_offset + ((lastElement.triangle_count * 3 + 3) & ~3));
         std::cout << "Built meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
         timer.Reset();
-        meshopt_optimizeMeshlet(meshletVertices.data(), meshletTriangles.data(), lastElement.triangle_count, lastElement.vertex_count);
+        //meshopt_optimizeMeshlet(meshletVertices.data(), meshletTriangles.data(), lastElement.triangle_count, lastElement.vertex_count);
         std::cout << "Optimized meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
         timer.Reset();
+        
         meshletsAddress         = UploadData<meshopt_Meshlet>(meshlets);
         meshletVerticesAddress  = UploadData<uint32_t>(meshletVertices);
         meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
@@ -854,17 +855,17 @@ void Renderer::LoadModels_Init() {
     LoadGLTF("assets/monke.glb", monkeTrans);
 
     // Many sponzas for benchmarking.
-    for (size_t i = 0; i < 2; i++) {
-        for (size_t j = 0; j < 2; j++) {
-            for (size_t k = 0; k < /*3*/1; k++) {
-                auto sponzaTrans = glm::mat4(1.0f);
-                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
-                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-                LoadGLTF("assets/sponza.glb", sponzaTrans);
-            }
-        }
-    }
+    //for (size_t i = 0; i < 2; i++) {
+    //    for (size_t j = 0; j < 2; j++) {
+    //        for (size_t k = 0; k < /*3*/1; k++) {
+    //            auto sponzaTrans = glm::mat4(1.0f);
+    //            sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
+    //            sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+    //            sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+    //            LoadGLTF("assets/sponza.glb", sponzaTrans);
+    //        }
+    //    }
+    //}
     std::cout << "\nLoaded all models.\n";
     std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes, indices: " << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
 }

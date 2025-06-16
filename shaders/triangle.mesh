@@ -2,7 +2,7 @@
 
 #extension GL_EXT_mesh_shader : enable
 #extension GL_EXT_buffer_reference : require
-#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_8bit_storage : require
 #extension GL_GOOGLE_include_directive : enable
 
 #include "common.h"
@@ -52,7 +52,7 @@ layout(push_constant, std430) uniform constant
 	mat4 worldTransform;
 	SceneInfo sceneInfo;
 
-	MeshletBuffer meshlets;
+	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
 
@@ -66,16 +66,27 @@ layout(push_constant, std430) uniform constant
 	DirLightBuffer dirLightBuffer;
 };
 
+struct Payload {
+	uint vertexOffset;
+	uint triangleOffset;
+};
+
+taskPayloadSharedEXT Payload payloadIn;
+
 void main()
 {
 	uint vertexCount = 3;
 	uint triangleCount = 1;
 	SetMeshOutputsEXT(vertexCount, triangleCount);
 
-	uint ID = gl_WorkGroupID.x * 3;
-	uint index0 = indexBuffer.indices[ID];
-	uint index1 = indexBuffer.indices[ID + 1];
-	uint index2 = indexBuffer.indices[ID + 2];
+	uint ID = (gl_WorkGroupID.x * 3) + payloadIn.triangleOffset;
+	uint meshletVert0 = uint(meshletTriangles.meshletTriangles[ID	 ]);
+	uint meshletVert1 = uint(meshletTriangles.meshletTriangles[ID + 1]);
+	uint meshletVert2 = uint(meshletTriangles.meshletTriangles[ID + 2]);
+
+	uint index0 = meshletVertices.meshletVertices[meshletVert0 + payloadIn.vertexOffset];
+	uint index1 = meshletVertices.meshletVertices[meshletVert1 + payloadIn.vertexOffset];
+	uint index2 = meshletVertices.meshletVertices[meshletVert2 + payloadIn.vertexOffset];
 
 	Vertex a = vertexBuffer.vertices[ index0 ];
 	Vertex b = vertexBuffer.vertices[ index1 ];
