@@ -618,44 +618,31 @@ AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsa
     allocBuffer.buffer = vk::Buffer(buffer);
     return allocBuffer;
 }
-GPUMeshBuffer Renderer::UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices) {
+GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
     // GPU only buffers.
     const size_t vertSize = vertices.size() * sizeof(Vertex);
-    const size_t indiSize =  indices.size() * sizeof(uint32_t);
 
     auto vertBuffer = CreateBuffer(vertSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst |
-        vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto indexBuffer = CreateBuffer(vertSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst |
         vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
 
     auto vertInfo = vk::BufferDeviceAddressInfo()
         .setBuffer(vertBuffer.buffer);
-    auto indexInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(indexBuffer.buffer);
 
-    GPUMeshBuffer meshbuffer{
-        indexBuffer,
+    GPUBuffer meshbuffer{
         vertBuffer,
-        device.device.getBufferAddress(vertInfo),
-        device.device.getBufferAddress(indexInfo)
+        device.device.getBufferAddress(vertInfo)
     };
 
     // Temporary CPU buffer for sending data.
-    AllocatedBuffer stageBuffer = CreateBuffer(vertSize + indiSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
+    AllocatedBuffer stageBuffer = CreateBuffer(vertSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
     auto data = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
 
     std::memcpy(data, vertices.data(), vertSize);
-    std::memcpy(data + vertSize, indices.data(), indiSize);
 
     std::function<void()> func = [&]() {
         auto vertRegion = vk::BufferCopy()
             .setSize(vertSize);
-        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.vertexBuffer.buffer, vertRegion);
-
-        auto indexRegion = vk::BufferCopy()
-            .setSrcOffset(vertSize)
-            .setSize(indiSize);
-        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.indexBuffer.buffer, indexRegion);
+        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer.buffer, vertRegion);
     };
     SubmitImmediate(func);
 
@@ -805,8 +792,7 @@ void Renderer::PushConstant_Draw() {
         meshletTrianglesAddress,
 
         meshViewBufferAddress,
-        meshBuffer.vertexBufferAddress,
-        meshBuffer.indexBufferAddress,
+        meshBuffer.bufferAddress,
         materialBufferAddress,
 
         pointLightBufferAddress,
@@ -893,7 +879,7 @@ void Renderer::SpawnLights_Init() {
 void Renderer::UploadAll_Init() {
     // Upload geometry and material indices.
     if (indices.size() > 0 && vertices.size() > 0)
-        meshBuffer = UploadMesh(indices, vertices);
+        meshBuffer = UploadMesh(vertices);
     if (meshViews.size() > 0)
         meshViewBufferAddress = UploadData<MeshView>(meshViews);
 

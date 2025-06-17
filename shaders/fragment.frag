@@ -27,9 +27,6 @@ layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{
 layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
 	Vertex vertices[];
 };
-layout(buffer_reference, std430) readonly buffer IndexBuffer{
-	uint indices[];
-};
 layout(buffer_reference, std430) readonly buffer MaterialBuffer{
 	Material materials[];
 };
@@ -57,7 +54,6 @@ layout(push_constant, std430) uniform constant
 
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
-	IndexBuffer indexBuffer;
 	MaterialBuffer materialBuffer;
 
 	PointLightBuffer pointLightBuffer;

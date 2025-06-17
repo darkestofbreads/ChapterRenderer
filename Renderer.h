@@ -87,7 +87,6 @@ struct PushConstantData {
 
 	vk::DeviceAddress meshViewBufferAddress;
 	vk::DeviceAddress vertexBufferAddress;
-	vk::DeviceAddress indexBufferAddress;
 	vk::DeviceAddress materialBufferAddress;
 
 	vk::DeviceAddress pointLightBufferAddress;
@@ -104,11 +103,9 @@ struct AllocatedImage {
 	vk::ImageView view;
 	VmaAllocation alloc;
 };
-struct GPUMeshBuffer {
-	AllocatedBuffer indexBuffer;
-	AllocatedBuffer vertexBuffer;
-	vk::DeviceAddress vertexBufferAddress;
-	vk::DeviceAddress indexBufferAddress;
+struct GPUBuffer {
+	AllocatedBuffer buffer;
+	vk::DeviceAddress bufferAddress;
 };
 struct Chunk {
 	uint32_t blocks[32][32];
@@ -150,7 +147,7 @@ private:
 	void CreateFencesAndSemaphores();
 	void InitMainObjects(SDL_Window* window, std::atomic<bool>* ready);
 
-	GPUMeshBuffer UploadMesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+	GPUBuffer UploadMesh(std::span<Vertex> vertices);
 	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
 
 	AllocatedImage CreateDepthImage();
@@ -169,7 +166,7 @@ private:
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
-	GPUMeshBuffer meshBuffer;
+	GPUBuffer meshBuffer;
 	AllocatedBuffer CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage);
 	VmaAllocator allocator;
 
@@ -219,7 +216,9 @@ private:
 	std::vector<Vertex>				vertices;
 	std::vector<MaterialIndexGroup> materialIndexGroups;
 	std::vector<uint32_t>			materialIndices;
+
 	std::vector<uint32_t>			indices;
+
 	std::vector<PointLight>			pointLights;
 	std::vector<SpotLight>			spotLights;
 	std::vector<DirLight>			dirLights;
