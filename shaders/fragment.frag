@@ -23,6 +23,9 @@ layout(buffer_reference, std430) readonly buffer MeshletVertexBuffer{
 layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{ 
 	uint8_t meshletTriangles[];
 };
+layout(buffer_reference, std430) readonly buffer MeshletBoundBuffer{ 
+	MeshletBounds meshletBounds[];
+};
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
 	Vertex vertices[];
@@ -46,11 +49,13 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 worldTransform;
+	vec4 camPosition;
 	SceneInfo sceneInfo;
 
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
+	MeshletBoundBuffer meshletBounds;
 
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
@@ -150,6 +155,8 @@ vec3 CalcSpotLight(SpotLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRo
 	return (kdiffuse * albedo / PI + specular) * radiance * coverage * intensity;
 }
 
+layout(location = 5) in vec4 meshletColor;
+
 layout(location = 0) out vec4 outColor;
 void main() {
 // Implement range discard for each point and spot light.
@@ -190,4 +197,6 @@ void main() {
 	// Add emissive to final pixel.
 	vec4 emissiveFrag = texture(textures[mat.emmisive], uv);
 	outColor = mix(vec4(fragment, 1), emissiveFrag, dot(emissiveFrag.xyz, vec3(1)));
+
+	//outColor = meshletColor;
 }

@@ -1,6 +1,18 @@
 #ifndef _COMMON_H_
 #define _COMMON_H_
 
+struct MeshletBounds
+{
+	vec3 sphereCenter;
+	float sphereRadius;
+
+	vec3 coneTip;
+	float coneCutoff;
+
+	vec3 coneDirection;
+	uint flags;
+};
+
 struct Meshlet {
 	uint vertexOffset;
 	uint triangleOffset;
@@ -29,16 +41,16 @@ struct Material {
 };
 
 struct Vertex {
-	vec3 Position;
+	vec3  Position;
 	float U;
-	vec3 Normal;
+	vec3  Normal;
 	float V;
 };
 
 struct PointLight {
-	vec3 pos;
+	vec3  pos;
 	float radius;
-	vec3 color;
+	vec3  color;
 	float falloff;
 };
 
@@ -48,10 +60,10 @@ struct DirLight {
 };
 
 struct SpotLight {
-	vec3 pos;
+	vec3  pos;
 	float radius;
-	vec4 lightDir;
-	vec3 color;
+	vec4  lightDir;
+	vec3  color;
 	float falloff;
 	float cutoff;
 	float innerCutoff;

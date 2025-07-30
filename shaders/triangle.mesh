@@ -15,6 +15,8 @@ layout(location = 2) flat out uint materialIndex[];
 layout(location = 3) out vec3 position[];
 layout(location = 4) out vec3 normal[];
 
+layout(location = 5) out vec4 meshletColor[];
+
 layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
 	Meshlet meshlets[];
 };
@@ -23,6 +25,9 @@ layout(buffer_reference, std430) readonly buffer MeshletVertexBuffer{
 };
 layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{ 
 	uint8_t meshletTriangles[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletBoundBuffer{ 
+	MeshletBounds meshletBounds[];
 };
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
@@ -47,11 +52,13 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 worldTransform;
+	vec4 camPosition;
 	SceneInfo sceneInfo;
 
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
+	MeshletBoundBuffer meshletBounds;
 
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
@@ -65,6 +72,7 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
+	vec4 meshletCol;
 };
 
 taskPayloadSharedEXT Payload payloadIn;
@@ -108,4 +116,8 @@ void main()
 	normal[0] = normalTransform * a.Normal;
 	normal[1] = normalTransform * b.Normal;
 	normal[2] = normalTransform * c.Normal;
+
+	meshletColor[0] = payloadIn.meshletCol;
+	meshletColor[1] = payloadIn.meshletCol;
+	meshletColor[2] = payloadIn.meshletCol;
 }

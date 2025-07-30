@@ -12,7 +12,6 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
     LoadModels_Init();
     SpawnLights_Init();
-    OptimizeMesh();
     UploadAll_Init();
 
     CreateDescSets_Init();
@@ -34,9 +33,6 @@ void Renderer::Draw() {
     BeginRendering(imageIndex);
     PushConstant_Draw();
     cmdBuffers[currentFrame].bindShadersEXT(meshStages, shaders, dldid);
-    // Launch one invocation per meshlet,
-    // then inside each invocation, emit one mesh shader each primitive.
-    // Draw meshes.
     cmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     ImGui::Render();
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(cmdBuffers[currentFrame]));
@@ -324,6 +320,38 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
         return 0;
     return textures.size() - 1;
 }
+void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices, std::vector<float>& positions) {
+    std::vector<uint32_t> remap(indices.size());
+    std::vector<uint32_t> newIndices(indices.size());
+
+    size_t oldVertCount = vertices.size();
+    size_t vertCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
+    std::vector<Vertex> newVertices(vertCount);
+
+    meshopt_remapIndexBuffer(newIndices.data(), indices.data(), indices.size(), remap.data());
+    meshopt_remapVertexBuffer(newVertices.data(), vertices.data(), oldVertCount, sizeof(Vertex), remap.data());
+    vertices = newVertices;
+    indices = newIndices;
+
+    std::cout << "Reduced " << oldVertCount - vertices.size()  << " Vertices\n";
+
+    positions.resize(vertices.size() * 3);
+    for (size_t i = 0; i < vertices.size(); i++) {
+        positions[i * 3]     = vertices[i].Position.x;
+        positions[i * 3 + 1] = vertices[i].Position.y;
+        positions[i * 3 + 2] = vertices[i].Position.z;
+    }
+
+    meshopt_optimizeOverdraw(indices.data(), indices.data(), indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, 1.05f);
+    auto newVertSize = meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
+
+    positions.resize(newVertSize * 3);
+    for (size_t i = 0; i < vertices.size(); i++) {
+        positions[i * 3] = vertices[i].Position.x;
+        positions[i * 3 + 1] = vertices[i].Position.y;
+        positions[i * 3 + 2] = vertices[i].Position.z;
+    }
+}
 void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     Timer total = Timer();
     Timer parts = Timer();
@@ -393,6 +421,7 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             }
         }
     }
+
     // Load materials.
     std::vector<uint32_t> materialIDs;
     std::vector<MaterialIndexGroup> matIndexGroups;
@@ -420,44 +449,32 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to load materials." << "\n";
     parts.Reset();
+
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
-        MeshView meshView;
-        meshView.start = indices.size();
         for (const auto& primitive : mesh.primitives) {
-            size_t prevVertexSize = vertices.size();
-            size_t prevIndexSize  = indices.size();
+            std::vector<Vertex> verticesLocal;
+            // Read vertices.
+            {
+                const auto& positions = ReadAttribute<glm::vec3>(asset, primitive, "POSITION");
+                const auto& normals   = ReadAttribute<glm::vec3>(asset, primitive, "NORMAL");
+                const auto& texCoords = ReadAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0");
 
-            auto positions        = ReadAttribute<glm::vec3>(asset, primitive, "POSITION");
-            auto normals          = ReadAttribute<glm::vec3>(asset, primitive, "NORMAL");
-            const auto& texCoords = ReadAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0");
+                verticesLocal.resize(positions.size());
+                for (size_t i = 0; i < positions.size(); i++) {
 
-            std::cout << "Took " << parts.GetMilliseconds() << " ms to read attributes." << "\n";
-            parts.Reset();
+                    verticesLocal[i] = { (transform * glm::vec4(positions[i], 1)).xyz, texCoords[i].x, glm::normalize(normalTransform * normals[i]), texCoords[i].y };
+                }
 
-            for (size_t t = 0; t < positions.size(); t++) {
-                auto pos = transform * glm::vec4(positions[t], 1);
-                positions[t] = pos.xyz;
-                normals[t]   = normalTransform * normals[t];
+                std::cout << "Took " << parts.GetMilliseconds() << " ms to add vertices." << "\n";
+                parts.Reset();
             }
-
-            std::cout << "Took " << parts.GetMilliseconds() << " ms to transform normals and positions." << "\n";
-            parts.Reset();
-
-            // Add vertices to pool.
-            size_t vertOffset = vertices.size();
-            vertices.resize(vertOffset + positions.size());
-            for (size_t i = 0; i < positions.size(); i++)
-                vertices[i + vertOffset] = { positions[i], texCoords[i].x, normals[i], texCoords[i].y };
-
-            std::cout << "Took " << parts.GetMilliseconds() << " ms to add vertices." << "\n";
-            parts.Reset();
 
             // Determine material.
-            uint32_t virtualMaterialIndex = 0;
-            if (primitive.materialIndex.has_value()) {
-                virtualMaterialIndex = materialIDs[primitive.materialIndex.value()];
-            }
+            uint32_t materialIndex = 0;
+            if (primitive.materialIndex.has_value())
+                // TODO: Send via Mesh object.
+                materialIndex = materialIDs[primitive.materialIndex.value()];
 
             // Load indices.
             auto& indIt = primitive.indicesAccessor;
@@ -467,114 +484,108 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             const auto& indBufferView = asset.bufferViews[indAcr.bufferViewIndex.value()];
             const auto& indBuffer     = asset.buffers[indBufferView.bufferIndex];
             const auto& indData       = get<fastgltf::sources::Array>(indBuffer.data);
+            
+            std::vector<uint32_t> indices(indAcr.count);
 
-            size_t indexCount = indAcr.count;
-            indices.resize(indexCount + indices.size());
-
-            size_t count = 0;
             // If possible, the GLTF will use uint16 to reduce file size.
             if (indAcr.componentType == fastgltf::ComponentType::UnsignedShort) {
                 std::vector<uint16_t> rawIndices(indAcr.count);
                 std::memcpy(rawIndices.data(), indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint16_t) * rawIndices.size());
 
-                for (size_t i = 0; i < indexCount; i++) {
-                    indices[prevIndexSize + i] = prevVertexSize + static_cast<uint32_t>(rawIndices[i]);
-                }
+                for (size_t i = 0; i < indAcr.count; i++)
+                    indices[i] = static_cast<uint32_t>(rawIndices[i]);
             }
-            else {
-                std::vector<uint32_t> rawIndices(indAcr.count);
-                std::memcpy(rawIndices.data(), indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint32_t) * rawIndices.size());
+            else
+                std::memcpy(&indices[0], indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint32_t) * indices.size());
 
-                // TODO: Do memcpy instead.
-                for (size_t i = 0; i < indexCount; i++) {
-                    indices[prevIndexSize + i] = prevVertexSize + rawIndices[i];
-                }
-            }
-            meshView.end = indices.size() - 1;
-            meshView.filler = 0;
-            meshView.material = 0;
-            meshViews.emplace_back(meshView);
+            std::vector<float> positions;
+            OptimizeMesh(indices, verticesLocal, positions);
 
-            std::cout << "Took " << parts.GetMilliseconds() << " ms to format and add indices." << "\n";
+            auto prevVerticesSize = vertices.size();
+            vertices.resize(prevVerticesSize + verticesLocal.size());
+            std::memcpy(&vertices[prevVerticesSize], verticesLocal.data(), sizeof(Vertex) * verticesLocal.size());
+
+            AddMeshlets(indices, positions, prevVerticesSize);
         }
     }
     std::cout << "Took " << total.GetMilliseconds() << " ms to fully load model." << "\n\n";
 }
-void Renderer::OptimizeMesh() {
-    {
-        // Indexing.
-        Timer timer = Timer();
-        std::vector<uint32_t> remap(indices.size());
-        std::vector<uint32_t> newIndices(indices.size());
 
-        size_t oldVertCount = vertices.size();
-        size_t vertCount    = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
-        std::vector<Vertex> newVertices(vertCount);
+void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions, 
+    std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, bool backfaceCulling = true) {
+    // TODO: Lower max values when mesh has fewer primitives.
+    const size_t maxVertices = 64;
+    const size_t maxTriangles = 124;
+    const float  coneWeight = 0.25f;
 
-        meshopt_remapIndexBuffer (newIndices.data(), indices.data(), indices.size(), remap.data());
-        meshopt_remapVertexBuffer(newVertices.data(), vertices.data(), oldVertCount, sizeof(Vertex), remap.data());
-        std::cout << "Reduced vertex count by " << oldVertCount - newVertices.size() << " in " << timer.GetMilliseconds() << " ms" << "\n";
-        vertices = newVertices;
-        indices  = newIndices;
-    }
-    {
-        // Vertex cache optimization. (Questionable, seems to degrade performance)
-        Timer timer = Timer();
-        meshopt_optimizeVertexCache(indices.data(), indices.data(), indices.size(), vertices.size());
-        std::cout << "Reordered indices in " << timer.GetMilliseconds() << " ms" << "\n";
-    }
-    std::vector<float> positions(vertices.size() * 3);
-    for (size_t i = 0; i < vertices.size(); i++) {
-        positions[i] = vertices[i].Position.x;
-        positions[i + 1] = vertices[i].Position.y;
-        positions[i + 2] = vertices[i].Position.z;
-    }
-    {
-        // Overdraw optimization.
-        Timer timer = Timer();
-        meshopt_optimizeOverdraw(indices.data(), indices.data(), indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, 1.05f);
-        std::cout << "Optimized overdraw in " << timer.GetMilliseconds() << " ms" << "\n";
-    }
-    {
-        // Vertex fetch optimization.
-        Timer timer = Timer();
-        meshopt_optimizeVertexFetch(vertices.data(), indices.data(), indices.size(), vertices.data(), vertices.size(), sizeof(Vertex));
-        std::cout << "Reordered vertices in " << timer.GetMilliseconds() << " ms" << "\n";
-    }
-    {
-        // Build and optimize meshlets.
-        Timer timer = Timer();
-        const size_t maxVertices  = 64;
-        const size_t maxTriangles = 124;
-        const float  coneWeight   = 0.25f;
-        size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
-        meshlets         = std::vector<meshopt_Meshlet>(maxMeshlets);
-        meshletVertices  = std::vector<uint32_t>(maxMeshlets * maxVertices);
-        meshletTriangles = std::vector<uint8_t>(maxMeshlets * maxTriangles * 3);
+    size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
+    meshlets.resize(maxMeshlets);
+    vertices.resize(maxMeshlets * maxVertices);
+    triangles.resize(maxMeshlets * maxTriangles * 3);
 
-        size_t meshletCount = meshopt_buildMeshlets(meshlets.data(), meshletVertices.data(), meshletTriangles.data(), indices.data(),
-            indices.size(), positions.data(), vertices.size(), sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
+    const size_t vertexCount = positions.size() / 3;
+    size_t meshletCount = meshopt_buildMeshlets(&meshlets[0], &vertices[0], &triangles[0],
+        indices.data(), indices.size(), positions.data(), vertexCount, sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
 
-        const meshopt_Meshlet& lastElement = meshlets[meshletCount - 1];
-        meshletVertices.resize(lastElement.vertex_offset + lastElement.vertex_count);
-        meshletTriangles.resize(lastElement.triangle_offset + ((lastElement.triangle_count * 3 + 3) & ~3));
-        std::cout << "Built meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
-        timer.Reset();
-        //meshopt_optimizeMeshlet(meshletVertices.data(), meshletTriangles.data(), lastElement.triangle_count, lastElement.vertex_count);
-        std::cout << "Optimized meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
-        timer.Reset();
-        
-        meshletsAddress         = UploadData<meshopt_Meshlet>(meshlets);
-        meshletVerticesAddress  = UploadData<uint32_t>(meshletVertices);
-        meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
-        std::cout << "Uploaded meshlets in " << timer.GetMilliseconds() << " ms" << "\n";
+    const meshopt_Meshlet& lastElement = meshlets[meshletCount - 1];
+    meshlets.resize(meshletCount);
+    vertices.resize(lastElement.vertex_offset + lastElement.vertex_count);
+    triangles.resize(lastElement.triangle_offset + ((lastElement.triangle_count * 3 + 3) & ~3));
+
+    for (auto& m : meshlets)
+        meshopt_optimizeMeshlet(&vertices[m.vertex_offset], &triangles[m.triangle_offset], m.triangle_count, m.vertex_count);
+
+    bounds.resize(meshlets.size());
+    for (size_t i = 0; i < bounds.size(); i++) {
+        auto& m = meshlets[i];
+        const auto bound = meshopt_computeMeshletBounds(&vertices[m.vertex_offset], &triangles[m.triangle_offset], m.triangle_count, positions.data(), vertexCount, sizeof(float) * 3);
+
+        uint32_t flags = 1;
+        if (backfaceCulling)
+            flags = 0;
+
+        auto coneDir = glm::vec3(bound.cone_axis[0], bound.cone_axis[1], bound.cone_axis[2]);
+        bounds[i] = {
+            glm::vec3(bound.center[0], bound.center[1], bound.center[2]),
+            bound.radius,
+            glm::vec3(bound.cone_apex[0], bound.cone_apex[1], bound.cone_apex[2]),
+            bound.cone_cutoff,
+            coneDir,
+            flags
+        };
     }
-    {
-        // Shadow indexing.
+}
+
+void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize) {
+    std::vector<meshopt_Meshlet> meshletsLocal;
+    std::vector<uint32_t>        verticesLocal;
+    std::vector<uint8_t>         indicesLocal;
+    std::vector<MeshletBounds>   boundsLocal;
+    BuildMeshlets(indices, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal);
+
+    // Add to geometry pool.
+    auto prevMeshletsSize = meshlets.size();
+    auto prevMeshletIndicesSize  = meshletTriangles.size();
+    auto prevMeshletVerticesSize = meshletVertices.size();
+    auto prevMeshletBoundsSize   = meshletBounds.size();
+
+    meshlets.resize(meshletsLocal.size() + prevMeshletsSize);
+    for (size_t i = 0; i < meshletsLocal.size(); i++) {
+        auto& m = meshletsLocal[i];
+        meshlets[i + prevMeshletsSize].triangle_offset = m.triangle_offset + prevMeshletIndicesSize;
+        meshlets[i + prevMeshletsSize].vertex_offset   = m.vertex_offset   + prevMeshletVerticesSize;
+        meshlets[i + prevMeshletsSize].triangle_count  = m.triangle_count;
+        meshlets[i + prevMeshletsSize].vertex_count    = m.vertex_count;
     }
-    {
-        // Vertex quantization.
-    }
+
+    meshletVertices .resize(prevMeshletVerticesSize + verticesLocal.size());
+    meshletTriangles.resize(prevMeshletIndicesSize  + indicesLocal.size());
+    meshletBounds   .resize(prevMeshletBoundsSize   + boundsLocal.size());
+    for (size_t i = 0; i < verticesLocal.size(); i++)
+        meshletVertices[i + prevMeshletVerticesSize] = verticesLocal[i] + prevVerticesSize;
+
+    std::memcpy(&meshletTriangles[meshletTriangles.size() - indicesLocal.size()], indicesLocal.data(), sizeof(uint8_t) * indicesLocal.size());
+    std::memcpy(&meshletBounds[meshletBounds.size() - boundsLocal.size()], boundsLocal.data(), sizeof(MeshletBounds) * boundsLocal.size());
 }
 
 template<typename T>
@@ -785,11 +796,13 @@ void Renderer::PushConstant_Draw() {
     PushConstantData pushConstant{
         vertexTransform,
         worldTransform,
+        glm::vec4(position, 1),
         sceneInfo,
 
         meshletsAddress,
         meshletVerticesAddress,
         meshletTrianglesAddress,
+        meshletBoundsAddress,
 
         meshViewBufferAddress,
         meshBuffer.bufferAddress,
@@ -818,42 +831,43 @@ void Renderer::ImGui_Draw(double frameTime) {
 void Renderer::LoadModels_Init() {
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
 
+    auto helmetTrans = glm::mat4(1.0f);
+    helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
+    helmetTrans = glm::rotate<float>(helmetTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
+    LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
+    
     auto dragonTrans = glm::mat4(1.0f);
     dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 5.0f, 2.0f));
     dragonTrans = glm::rotate<float>(dragonTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     dragonTrans = glm::scale(dragonTrans, glm::vec3(0.1f));
     LoadGLTF("assets/stanford_dragon.glb", dragonTrans);
-
-    auto helmetTrans = glm::mat4(1.0f);
-    helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
-    helmetTrans = glm::rotate<float>(helmetTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
-    LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
-
+    
     auto toyTrans = glm::mat4(1.0f);
     toyTrans = glm::translate(toyTrans, glm::vec3(-3.0f, 0, 0));
     toyTrans = glm::rotate<float>(toyTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
     toyTrans = glm::scale(toyTrans, glm::vec3(0.005f));
     LoadGLTF("assets/ToyCar.glb", toyTrans);
-
+    
     auto monkeTrans = glm::mat4(1.0f);
     monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
     monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
-    // Many sponzas for benchmarking.
-    //for (size_t i = 0; i < 2; i++) {
-    //    for (size_t j = 0; j < 2; j++) {
-    //        for (size_t k = 0; k < /*3*/1; k++) {
-    //            auto sponzaTrans = glm::mat4(1.0f);
-    //            sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
-    //            sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
-    //            sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-    //            LoadGLTF("assets/sponza.glb", sponzaTrans);
-    //        }
-    //    }
-    //}
+    //Many sponzas for benchmarking.
+    for (size_t i = 0; i < 0; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < /*3*/1; k++) {
+                auto sponzaTrans = glm::mat4(1.0f);
+                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
+                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+                LoadGLTF("assets/sponza.glb", sponzaTrans);
+            }
+        }
+    }
+
     std::cout << "\nLoaded all models.\n";
-    std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes, indices: " << sizeof(glm::uvec4) * indices.size() << " Bytes\n";
+    std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes\n";
 }
 void Renderer::SpawnLights_Init() {
     // xyz: 20 0 25 "Centre"
@@ -878,10 +892,18 @@ void Renderer::SpawnLights_Init() {
 }
 void Renderer::UploadAll_Init() {
     // Upload geometry and material indices.
-    if (indices.size() > 0 && vertices.size() > 0)
+    if (vertices.size() > 0)
         meshBuffer = UploadMesh(vertices);
     if (meshViews.size() > 0)
         meshViewBufferAddress = UploadData<MeshView>(meshViews);
+    if (meshletBounds.size() > 0)
+        meshletBoundsAddress = UploadData<MeshletBounds>(meshletBounds);
+    if (meshlets.size() > 0)
+        meshletsAddress = UploadData<meshopt_Meshlet>(meshlets);
+    if (meshletVertices.size() > 0)
+        meshletVerticesAddress = UploadData<uint32_t>(meshletVertices);
+    if (meshletTriangles.size() > 0)
+        meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
 
     // Upload materials.
     if (materialIndexGroups.size() > 0)

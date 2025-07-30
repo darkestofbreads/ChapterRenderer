@@ -58,6 +58,11 @@ void doRendering(std::atomic<bool>* stillRunning, std::atomic<bool>* ready) {
         if (input.IsPressed(SDL_SCANCODE_G))
             renderer.Teleport(glm::vec3(24, 4, 14.5f));
 
+        if (input.IsPressed(SDL_SCANCODE_R))
+            renderer.Teleport(glm::vec3(0, 0, 0));
+
+        if (input.IsPressed(SDL_SCANCODE_T))
+            renderer.Teleport(glm::vec3(1, 1, 1));
         // Send position and rotation to logic handler.
 
         renderer.Draw();

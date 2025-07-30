@@ -38,6 +38,16 @@ struct Vertex {
 	glm::vec3 Normal;
 	float V;
 };
+struct MeshletBounds {
+	glm::vec3 sphereCenter;
+	float sphereRadius;
+
+	glm::vec3 coneTip;
+	float coneCutoff;
+
+	glm::vec3 coneDirection;
+	uint32_t flags;
+};
 struct MaterialIndexGroup {
 	uint32_t diffuse;
 	uint32_t metallicRoughness;
@@ -76,14 +86,17 @@ struct SceneInfo {
 	uint32_t spotLightCount;
 	uint32_t directionLightCount;
 };
+// Push constants have a garuanteed limit of 128 bytes, however most modern GPUs have a limit of 256 bytes.
 struct PushConstantData {
 	glm::mat4 projView;
 	glm::mat4 worldTransform;
+	glm::vec4 camPos;
 	SceneInfo sceneInfo;
 
 	vk::DeviceAddress meshletsAddress;
 	vk::DeviceAddress meshletVerticesAddress;
 	vk::DeviceAddress meshletTrianglesAddress;
+	vk::DeviceAddress meshletBoundsAddress;
 
 	vk::DeviceAddress meshViewBufferAddress;
 	vk::DeviceAddress vertexBufferAddress;
@@ -132,7 +145,6 @@ private:
 	void UploadAll_Init();
 	void CreateSamplers_Init();
 	void CreateDescSets_Init();
-	void OptimizeMesh();
 
 	void SubmitAndPresent(uint32_t imageIndex);
 	void SubmitImmediate(const std::function<void()>& func);
@@ -174,6 +186,7 @@ private:
 	vk::DeviceAddress UploadData(std::span<T> data);
 
 	vk::DeviceAddress meshletsAddress;
+	vk::DeviceAddress meshletBoundsAddress;
 	vk::DeviceAddress meshletVerticesAddress;
 	vk::DeviceAddress meshletTrianglesAddress;
 
@@ -182,6 +195,7 @@ private:
 	vk::DeviceAddress pointLightBufferAddress;
 	vk::DeviceAddress spotLightBufferAddress;
 	vk::DeviceAddress dirLightBufferAddress;
+
 	glm::mat4 vertexTransform;
 	glm::mat4 worldTransform;
 	glm::vec3 position  = glm::vec3(0);
@@ -209,15 +223,16 @@ private:
 	std::array <vk::Fence, 2> inFlightFences;
 	vk::Fence immediateFence;
 
+	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad);
+	std::vector<Vertex>				vertices;
 	std::vector<meshopt_Meshlet>	meshlets;
+	std::vector<MeshletBounds>		meshletBounds;
 	std::vector<uint32_t>			meshletVertices;
 	std::vector<uint8_t>			meshletTriangles;
+
 	std::vector<MeshView>			meshViews;
-	std::vector<Vertex>				vertices;
 	std::vector<MaterialIndexGroup> materialIndexGroups;
 	std::vector<uint32_t>			materialIndices;
-
-	std::vector<uint32_t>			indices;
 
 	std::vector<PointLight>			pointLights;
 	std::vector<SpotLight>			spotLights;

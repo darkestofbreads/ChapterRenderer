@@ -16,7 +16,9 @@ layout(buffer_reference, std430) readonly buffer MeshletVertexBuffer{
 layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{ 
 	uint8_t meshletTriangles[];
 };
-
+layout(buffer_reference, std430) readonly buffer MeshletBoundBuffer{ 
+	MeshletBounds meshletBounds[];
+};
 
 layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
 	Vertex vertices[];
@@ -40,11 +42,13 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 worldTransform;
+	vec4 camPosition;
 	SceneInfo sceneInfo;
 
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
+	MeshletBoundBuffer meshletBounds;
 
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
@@ -58,13 +62,25 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
+	vec4 meshletCol;
 };
 taskPayloadSharedEXT Payload payloadOut;
 
 void main() {
-	Meshlet meshlet = meshletBuffer.meshlets[gl_WorkGroupID.x];
+	uint ID = gl_WorkGroupID.x;
+	Meshlet meshlet = meshletBuffer.meshlets[ID];
 	payloadOut.vertexOffset   = meshlet.vertexOffset;
 	payloadOut.triangleOffset = meshlet.triangleOffset;
+
+	MeshletBounds bound = meshletBounds.meshletBounds[ID];
+	payloadOut.meshletCol = vec4(bound.coneDirection, bound.flags);
+
+	// Backface culling against the meshlets cone.
+	vec3 coneTip = bound.coneTip;
+	vec3 coneDir = bound.coneDirection;
+	if(dot(normalize(coneTip - camPosition.xyz), coneDir) >= bound.coneCutoff && bound.flags != 0) return;
+
+	// Frustum culling.
 
 	EmitMeshTasksEXT(meshlet.triangleCount, 1, 1);
 }
