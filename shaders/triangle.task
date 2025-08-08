@@ -62,7 +62,8 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
-	vec4 meshletCol;
+	uint materialIndex;
+	vec3 meshletCol;
 };
 taskPayloadSharedEXT Payload payloadOut;
 
@@ -73,14 +74,21 @@ void main() {
 	payloadOut.triangleOffset = meshlet.triangleOffset;
 
 	MeshletBounds bound = meshletBounds.meshletBounds[ID];
-	payloadOut.meshletCol = vec4(bound.coneDirection, bound.flags);
+	payloadOut.meshletCol = bound.coneDirection;
+
+	MeshView mesh = meshViewBuffer.meshViews[bound.meshID];
+	payloadOut.materialIndex = mesh.material;
+
+	// Frustum culling against the meshlets sphere.
+	for (int i = 0; i < 6; i++) {
+		vec3 a = vertexBuffer.vertices[i].position.xyz * bound.sphereCenter;
+		if(a.x + a.y + a.z + vertexBuffer.vertices[i].u <= -bound.sphereRadius) return;
+	}
 
 	// Backface culling against the meshlets cone.
 	vec3 coneTip = bound.coneTip;
 	vec3 coneDir = bound.coneDirection;
-	if(dot(normalize(coneTip - camPosition.xyz), coneDir) >= bound.coneCutoff && bound.flags != 0) return;
-
-	// Frustum culling.
+	if(dot(normalize(coneTip - camPosition.xyz), coneDir) >= bound.coneCutoff && mesh.flags > 0) return;
 
 	EmitMeshTasksEXT(meshlet.triangleCount, 1, 1);
 }

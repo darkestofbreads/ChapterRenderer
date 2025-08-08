@@ -72,9 +72,9 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
-	vec4 meshletCol;
+	uint materialIndex;
+	vec3 meshletCol;
 };
-
 taskPayloadSharedEXT Payload payloadIn;
 
 void main()
@@ -96,28 +96,28 @@ void main()
 	Vertex b = vertexBuffer.vertices[ index1 ];
 	Vertex c = vertexBuffer.vertices[ index2 ];
 
-	gl_MeshVerticesEXT[0].gl_Position = projView * vec4(a.Position, 1.0);
-	gl_MeshVerticesEXT[1].gl_Position = projView * vec4(b.Position, 1.0);
-	gl_MeshVerticesEXT[2].gl_Position = projView * vec4(c.Position, 1.0);
-	position[0] = (worldTransform * vec4(a.Position, 1)).xyz;
-	position[1] = (worldTransform * vec4(b.Position, 1)).xyz;
-	position[2] = (worldTransform * vec4(c.Position, 1)).xyz;
+	gl_MeshVerticesEXT[0].gl_Position = projView * vec4(a.position, 1.0);
+	gl_MeshVerticesEXT[1].gl_Position = projView * vec4(b.position, 1.0);
+	gl_MeshVerticesEXT[2].gl_Position = projView * vec4(c.position, 1.0);
+	position[0] = (worldTransform * vec4(a.position, 1)).xyz;
+	position[1] = (worldTransform * vec4(b.position, 1)).xyz;
+	position[2] = (worldTransform * vec4(c.position, 1)).xyz;
 
 	gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
-	uv[0] = vec2(a.U, a.V);
-	uv[1] = vec2(b.U, b.V);
-	uv[2] = vec2(c.U, c.V);
+	uv[0] = vec2(a.u, a.v);
+	uv[1] = vec2(b.u, b.v);
+	uv[2] = vec2(c.u, c.v);
 
-	materialIndex[0] = 0;
-	materialIndex[1] = 0;
-	materialIndex[2] = 0;
+	materialIndex[0] = payloadIn.materialIndex;
+	materialIndex[1] = payloadIn.materialIndex;
+	materialIndex[2] = payloadIn.materialIndex;
 
 	mat3 normalTransform = mat3(transpose(inverse(worldTransform)));
-	normal[0] = normalTransform * a.Normal;
-	normal[1] = normalTransform * b.Normal;
-	normal[2] = normalTransform * c.Normal;
+	normal[0] = normalTransform * a.normal;
+	normal[1] = normalTransform * b.normal;
+	normal[2] = normalTransform * c.normal;
 
-	meshletColor[0] = payloadIn.meshletCol;
-	meshletColor[1] = payloadIn.meshletCol;
-	meshletColor[2] = payloadIn.meshletCol;
+	meshletColor[0] = vec4(payloadIn.meshletCol, 1);
+	meshletColor[1] = vec4(payloadIn.meshletCol, 1);
+	meshletColor[2] = vec4(payloadIn.meshletCol, 1);
 }

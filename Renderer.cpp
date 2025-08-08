@@ -10,6 +10,9 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     CreateSamplers_Init();
     CreateDebugTextures();
 
+    vertices.resize(6);
+    BuildGlobalTransform();
+
     LoadModels_Init();
     SpawnLights_Init();
     UploadAll_Init();
@@ -41,6 +44,52 @@ void Renderer::Draw() {
 }
 
 // Camera related functions.
+// Gribb Hartmann method of extracting the frustum planes from the view-projection matrix
+std::array<glm::vec4, 6> ExtractFrustum(glm::mat4 mat) {
+    glm::vec4 near;
+    near[0] = mat[0].w + mat[0].z;
+    near[1] = mat[1].w + mat[1].z;
+    near[2] = mat[2].w + mat[2].z;
+    near[3] = mat[3].w + mat[3].z;
+
+    glm::vec4 far;
+    far[0] = mat[0].w - mat[0].z;
+    far[1] = mat[1].w - mat[1].z;
+    far[2] = mat[2].w - mat[2].z;
+    far[3] = mat[3].w - mat[3].z;
+
+    glm::vec4 right;
+    right[0] = mat[0].w - mat[0].x;
+    right[1] = mat[1].w - mat[1].x;
+    right[2] = mat[2].w - mat[2].x;
+    right[3] = mat[3].w - mat[3].x;
+
+    glm::vec4 left;
+    left[0] = mat[0].w + mat[0].x;
+    left[1] = mat[1].w + mat[1].x;
+    left[2] = mat[2].w + mat[2].x;
+    left[3] = mat[3].w + mat[3].x;
+
+    glm::vec4 top;
+    top[0] = mat[0].w - mat[0].y;
+    top[1] = mat[1].w - mat[1].y;
+    top[2] = mat[2].w - mat[2].y;
+    top[3] = mat[3].w - mat[3].y;
+
+    glm::vec4 bottom;
+    bottom[0] = mat[0].w + mat[0].y;
+    bottom[1] = mat[1].w + mat[1].y;
+    bottom[2] = mat[2].w + mat[2].y;
+    bottom[3] = mat[3].w + mat[3].y;
+
+    std::array<glm::vec4, 6> planes = { near, far, right, left, top, bottom };
+    for (size_t i = 0; i < planes.size(); i++) {
+        const auto lenght = std::sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
+        planes[i] /= lenght;
+    }
+
+    return planes;
+}
 void Renderer::Move(float forward, float sideward) {
     position += forward * direction;
     position -= glm::normalize(glm::cross(direction, glm::vec3(0, 1, 0))) * sideward;
@@ -56,11 +105,23 @@ void Renderer::BuildGlobalTransform() {
     direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
     direction = glm::normalize(direction);
 
-    worldTransform = glm::lookAt(position, position + direction, glm::vec3(0, 1.0f, 0));
+    const float ratio = (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height;
+    const float near  = 0.1f;
+    const float far   = 4000.0f;
+    const float fovY  = 90.0f;
+    const auto up     = glm::vec3(0, 1.0f, 0);
+
+    worldTransform = glm::lookAt(position, position + direction, up);
     vertexTransform = {
-        glm::perspective(glm::radians(90.0f), (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height, 0.1f, 4000.0f) *
-        worldTransform
+        glm::perspective(glm::radians(fovY), ratio, near, far) * worldTransform
     };
+    const auto frustum = ExtractFrustum(vertexTransform);
+    vertices[0] = { frustum[0].xyz, frustum[0].w, glm::vec3(0), 0 };
+    vertices[1] = { frustum[1].xyz, frustum[1].w, glm::vec3(0), 0 };
+    vertices[2] = { frustum[2].xyz, frustum[2].w, glm::vec3(0), 0 };
+    vertices[3] = { frustum[3].xyz, frustum[3].w, glm::vec3(0), 0 };
+    vertices[4] = { frustum[4].xyz, frustum[4].w, glm::vec3(0), 0 };
+    vertices[5] = { frustum[5].xyz, frustum[5].w, glm::vec3(0), 0 };
 }
 
 bool Renderer::AquireImageIndex(uint32_t& index) {
@@ -453,6 +514,9 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
         for (const auto& primitive : mesh.primitives) {
+            MeshView meshView;
+            meshView.start = vertices.size();
+
             std::vector<Vertex> verticesLocal;
             // Read vertices.
             {
@@ -471,10 +535,9 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             }
 
             // Determine material.
-            uint32_t materialIndex = 0;
+            meshView.material = 0;
             if (primitive.materialIndex.has_value())
-                // TODO: Send via Mesh object.
-                materialIndex = materialIDs[primitive.materialIndex.value()];
+                meshView.material = materialIDs[primitive.materialIndex.value()];
 
             // Load indices.
             auto& indIt = primitive.indicesAccessor;
@@ -504,15 +567,18 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
             auto prevVerticesSize = vertices.size();
             vertices.resize(prevVerticesSize + verticesLocal.size());
             std::memcpy(&vertices[prevVerticesSize], verticesLocal.data(), sizeof(Vertex) * verticesLocal.size());
+            meshView.end   = vertices.size() - 1;
+            meshView.flags = 1;
 
-            AddMeshlets(indices, positions, prevVerticesSize);
+            AddMeshlets(indices, positions, prevVerticesSize, meshViews.size());
+            meshViews.emplace_back(meshView);
         }
     }
     std::cout << "Took " << total.GetMilliseconds() << " ms to fully load model." << "\n\n";
 }
 
 void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions, 
-    std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, bool backfaceCulling = true) {
+    std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, uint32_t meshID) {
     // TODO: Lower max values when mesh has fewer primitives.
     const size_t maxVertices = 64;
     const size_t maxTriangles = 124;
@@ -540,10 +606,6 @@ void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions,
         auto& m = meshlets[i];
         const auto bound = meshopt_computeMeshletBounds(&vertices[m.vertex_offset], &triangles[m.triangle_offset], m.triangle_count, positions.data(), vertexCount, sizeof(float) * 3);
 
-        uint32_t flags = 1;
-        if (backfaceCulling)
-            flags = 0;
-
         auto coneDir = glm::vec3(bound.cone_axis[0], bound.cone_axis[1], bound.cone_axis[2]);
         bounds[i] = {
             glm::vec3(bound.center[0], bound.center[1], bound.center[2]),
@@ -551,17 +613,17 @@ void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions,
             glm::vec3(bound.cone_apex[0], bound.cone_apex[1], bound.cone_apex[2]),
             bound.cone_cutoff,
             coneDir,
-            flags
+            meshID
         };
     }
 }
 
-void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize) {
+void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID) {
     std::vector<meshopt_Meshlet> meshletsLocal;
     std::vector<uint32_t>        verticesLocal;
     std::vector<uint8_t>         indicesLocal;
     std::vector<MeshletBounds>   boundsLocal;
-    BuildMeshlets(indices, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal);
+    BuildMeshlets(indices, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal, meshID);
 
     // Add to geometry pool.
     auto prevMeshletsSize = meshlets.size();
@@ -854,7 +916,7 @@ void Renderer::LoadModels_Init() {
     LoadGLTF("assets/monke.glb", monkeTrans);
 
     //Many sponzas for benchmarking.
-    for (size_t i = 0; i < 0; i++) {
+    for (size_t i = 0; i < 1; i++) {
         for (size_t j = 0; j < 1; j++) {
             for (size_t k = 0; k < /*3*/1; k++) {
                 auto sponzaTrans = glm::mat4(1.0f);

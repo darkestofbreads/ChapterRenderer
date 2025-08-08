@@ -78,7 +78,8 @@ struct MeshView {
 	uint32_t start;
 	uint32_t end;
 	uint32_t material;
-	uint32_t filler;
+	// Only used to determine if mesh uses backface culling at the moment.
+	uint32_t flags;
 };
 struct SceneInfo {
 	uint32_t meshCount;
@@ -86,7 +87,7 @@ struct SceneInfo {
 	uint32_t spotLightCount;
 	uint32_t directionLightCount;
 };
-// Push constants have a garuanteed limit of 128 bytes, however most modern GPUs have a limit of 256 bytes.
+// Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
 	glm::mat4 projView;
 	glm::mat4 worldTransform;
@@ -223,7 +224,7 @@ private:
 	std::array <vk::Fence, 2> inFlightFences;
 	vk::Fence immediateFence;
 
-	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad);
+	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
 	std::vector<Vertex>				vertices;
 	std::vector<meshopt_Meshlet>	meshlets;
 	std::vector<MeshletBounds>		meshletBounds;

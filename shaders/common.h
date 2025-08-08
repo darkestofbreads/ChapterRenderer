@@ -10,7 +10,7 @@ struct MeshletBounds
 	float coneCutoff;
 
 	vec3 coneDirection;
-	uint flags;
+	uint meshID;
 };
 
 struct Meshlet {
@@ -21,10 +21,10 @@ struct Meshlet {
 };
 
 struct MeshView {
-	int start;
-	int end;
-	int material;
-	int filler;
+	uint start;
+	uint end;
+	uint material;
+	uint flags;
 };
 
 struct SceneInfo {
@@ -41,10 +41,10 @@ struct Material {
 };
 
 struct Vertex {
-	vec3  Position;
-	float U;
-	vec3  Normal;
-	float V;
+	vec3  position;
+	float u;
+	vec3  normal;
+	float v;
 };
 
 struct PointLight {
