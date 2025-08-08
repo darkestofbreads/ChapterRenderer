@@ -11,7 +11,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     CreateDebugTextures();
 
     vertices.resize(6);
-    BuildGlobalTransform();
+    //BuildGlobalTransform();
 
     LoadModels_Init();
     SpawnLights_Init();
@@ -26,6 +26,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
 void Renderer::Draw() {
     command.SetCurrentFrame(currentFrame);
+    isRecording = false;
 
     double frameTime = frameTimer.GetMilliseconds();
     frameTimer.Reset();
@@ -122,6 +123,8 @@ void Renderer::BuildGlobalTransform() {
     vertices[3] = { frustum[3].xyz, frustum[3].w, glm::vec3(0), 0 };
     vertices[4] = { frustum[4].xyz, frustum[4].w, glm::vec3(0), 0 };
     vertices[5] = { frustum[5].xyz, frustum[5].w, glm::vec3(0), 0 };
+    auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
+    UpdateBuffer(meshBuffer, frustumSpan);
 }
 
 bool Renderer::AquireImageIndex(uint32_t& index) {
@@ -186,6 +189,7 @@ void Renderer::BeginRendering(const uint32_t imageIndex) {
 
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     cmdBuffers[currentFrame].beginRendering(renderInfo);
+    isRecording = true;
 }
 void Renderer::SubmitImmediate(const std::function<void()>& func) {
     device.device.resetFences(immediateFence);
@@ -208,6 +212,8 @@ void Renderer::SubmitImmediate(const std::function<void()>& func) {
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     // End rendering.
     cmdBuffers[currentFrame].endRendering();
+    isRecording = false;
+
     command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
     command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
@@ -651,7 +657,7 @@ void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positio
 }
 
 template<typename T>
-vk::DeviceAddress Renderer::UploadData(std::span<T> data) {
+GPUBuffer Renderer::UploadData(std::span<T> data) {
     const auto size = sizeof(T) * data.size();
 
     auto buffer = CreateBuffer(size, vk::BufferUsageFlagBits::eStorageBuffer |
@@ -659,7 +665,7 @@ vk::DeviceAddress Renderer::UploadData(std::span<T> data) {
     auto addressInfo = vk::BufferDeviceAddressInfo()
         .setBuffer(buffer.buffer);
 
-    AllocatedBuffer stageBuffer = CreateBuffer(size,
+    auto stageBuffer = CreateBuffer(size,
         vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
     auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
     std::memcpy(byteData, data.data(), size);
@@ -673,7 +679,33 @@ vk::DeviceAddress Renderer::UploadData(std::span<T> data) {
     device.device.resetCommandPool(command.cmdPool);
     vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 
-    return device.device.getBufferAddress(addressInfo);
+    return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
+}
+template<typename T>
+void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, size_t offset) {
+    const auto size = sizeof(T) * data.size();
+
+    auto stageBuffer = CreateBuffer(size,
+        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
+    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
+    std::memcpy(byteData, data.data(), size);
+
+    std::function<void()> func = [&]() {
+        auto region = vk::BufferCopy()
+            .setSize(size)
+            .setDstOffset(offset);
+        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer.buffer, region);
+        };
+
+    if (!isRecording) {
+        SubmitImmediate(func);
+        device.device.resetCommandPool(command.cmdPool);
+    }
+    else {
+        func();
+    }
+
+    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 }
 AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage) {
     VkBufferCreateInfo bufferInfo = vk::BufferCreateInfo()
@@ -687,7 +719,7 @@ AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsa
     AllocatedBuffer allocBuffer;
     VkBuffer buffer;
     vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &buffer, &allocBuffer.alloc, &allocBuffer.info);
-
+    
     allocBuffer.buffer = vk::Buffer(buffer);
     return allocBuffer;
 }
@@ -861,18 +893,18 @@ void Renderer::PushConstant_Draw() {
         glm::vec4(position, 1),
         sceneInfo,
 
-        meshletsAddress,
-        meshletVerticesAddress,
-        meshletTrianglesAddress,
-        meshletBoundsAddress,
+        meshletsAddress.bufferAddress,
+        meshletVerticesAddress.bufferAddress,
+        meshletTrianglesAddress.bufferAddress,
+        meshletBoundsAddress.bufferAddress,
 
-        meshViewBufferAddress,
+        meshViewBufferAddress.bufferAddress,
         meshBuffer.bufferAddress,
-        materialBufferAddress,
+        materialBufferAddress.bufferAddress,
 
-        pointLightBufferAddress,
-        spotLightBufferAddress,
-        dirLightBufferAddress
+        pointLightBufferAddress.bufferAddress,
+        spotLightBufferAddress.bufferAddress,
+        dirLightBufferAddress.bufferAddress
     };
     cmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
     cmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);

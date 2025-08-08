@@ -184,18 +184,21 @@ private:
 	VmaAllocator allocator;
 
 	template<typename T>
-	vk::DeviceAddress UploadData(std::span<T> data);
+	GPUBuffer UploadData(std::span<T> data);
+	template<typename T>
+	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, size_t offset = 0);
+	bool isRecording = false;
 
-	vk::DeviceAddress meshletsAddress;
-	vk::DeviceAddress meshletBoundsAddress;
-	vk::DeviceAddress meshletVerticesAddress;
-	vk::DeviceAddress meshletTrianglesAddress;
+	GPUBuffer meshletsAddress;
+	GPUBuffer meshletBoundsAddress;
+	GPUBuffer meshletVerticesAddress;
+	GPUBuffer meshletTrianglesAddress;
 
-	vk::DeviceAddress meshViewBufferAddress;
-	vk::DeviceAddress materialBufferAddress;
-	vk::DeviceAddress pointLightBufferAddress;
-	vk::DeviceAddress spotLightBufferAddress;
-	vk::DeviceAddress dirLightBufferAddress;
+	GPUBuffer meshViewBufferAddress;
+	GPUBuffer materialBufferAddress;
+	GPUBuffer pointLightBufferAddress;
+	GPUBuffer spotLightBufferAddress;
+	GPUBuffer dirLightBufferAddress;
 
 	glm::mat4 vertexTransform;
 	glm::mat4 worldTransform;
