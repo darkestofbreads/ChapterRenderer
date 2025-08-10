@@ -11,7 +11,6 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     CreateDebugTextures();
 
     vertices.resize(6);
-    //BuildGlobalTransform();
 
     LoadModels_Init();
     SpawnLights_Init();
@@ -123,8 +122,10 @@ void Renderer::BuildGlobalTransform() {
     vertices[3] = { frustum[3].xyz, frustum[3].w, glm::vec3(0), 0 };
     vertices[4] = { frustum[4].xyz, frustum[4].w, glm::vec3(0), 0 };
     vertices[5] = { frustum[5].xyz, frustum[5].w, glm::vec3(0), 0 };
-    auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
-    UpdateBuffer(meshBuffer, frustumSpan);
+    if (!freezeFrustum) {
+        auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
+        UpdateBuffer(meshBuffer, frustumSpan);
+    }
 }
 
 bool Renderer::AquireImageIndex(uint32_t& index) {
@@ -914,13 +915,10 @@ void Renderer::ImGui_Draw(double frameTime) {
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
 
-    std::string positionStr = "X: " + std::to_string(position.x) + " Y: " + std::to_string(position.y) + " Z: " + std::to_string(position.z) + "\n";
-    std::string frameTimeStr = std::to_string(frameTime) + " ms | " + std::to_string(1000 / frameTime) + " fps\n";
-    ImGui::Text(positionStr.c_str());
-    ImGui::Text(frameTimeStr.c_str());
+    ImGui::Text(std::format("X: {:.4f} Y: {:.4f} Z {:.4f}", position.x, position.y, position.z).c_str());
+    ImGui::Text(std::format("{:.3f} ms | {:.1f} fps\n", frameTime, 1000 / frameTime).c_str());
     requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
-    if (requestNewSwapchain)
-        std::cout << "Checkbox pressed!\n";
+    ImGui::Checkbox("Freeze frustum", &freezeFrustum);
 }
 void Renderer::LoadModels_Init() {
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);

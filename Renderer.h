@@ -151,8 +151,11 @@ private:
 	void SubmitImmediate(const std::function<void()>& func);
 	void BeginRendering(const uint32_t imageIndex);
 	bool AquireImageIndex(uint32_t& index);
+
 	bool doVsync = true;
 	bool requestNewSwapchain = false;
+	bool freezeFrustum = false;
+	bool isRecording = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -187,7 +190,6 @@ private:
 	GPUBuffer UploadData(std::span<T> data);
 	template<typename T>
 	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, size_t offset = 0);
-	bool isRecording = false;
 
 	GPUBuffer meshletsAddress;
 	GPUBuffer meshletBoundsAddress;
