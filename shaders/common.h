@@ -32,6 +32,7 @@ struct SceneInfo {
 	uint pointLightCount;
 	uint spotLightCount;
 	uint directionLightCount;
+	vec4 flags;
 };
 
 struct Material {

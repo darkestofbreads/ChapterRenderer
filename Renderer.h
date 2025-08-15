@@ -86,6 +86,7 @@ struct SceneInfo {
 	uint32_t pointLightCount;
 	uint32_t spotLightCount;
 	uint32_t directionLightCount;
+	glm::vec4 flags;
 };
 // Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
@@ -149,13 +150,13 @@ private:
 
 	void SubmitAndPresent(uint32_t imageIndex);
 	void SubmitImmediate(const std::function<void()>& func);
-	void BeginRendering(const uint32_t imageIndex);
+	void Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea);
 	bool AquireImageIndex(uint32_t& index);
 
 	bool doVsync = true;
 	bool requestNewSwapchain = false;
 	bool freezeFrustum = false;
-	bool isRecording = false;
+	bool firstTime = true;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -184,12 +185,13 @@ private:
 
 	GPUBuffer meshBuffer;
 	AllocatedBuffer CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage);
+	//AllocatedBuffer stageBuffer;
 	VmaAllocator allocator;
 
 	template<typename T>
 	GPUBuffer UploadData(std::span<T> data);
 	template<typename T>
-	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, size_t offset = 0);
+	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset = 0);
 
 	GPUBuffer meshletsAddress;
 	GPUBuffer meshletBoundsAddress;
@@ -227,6 +229,7 @@ private:
 	std::array <vk::Semaphore, 2> imageAquiredSemaphores;
 	std::array <vk::Semaphore, 2> renderFinishedSemaphores;
 	std::array <vk::Fence, 2> inFlightFences;
+	std::array <AllocatedBuffer, 2> stageBuffers;
 	vk::Fence immediateFence;
 
 	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
@@ -245,6 +248,7 @@ private:
 	std::vector<DirLight>			dirLights;
 
 	std::vector<vk::ShaderEXT> shaders;
+	std::vector<vk::ShaderEXT> depthprepassShaders;
 
 	std::array<vk::ShaderStageFlagBits, 4> meshStages = {
 	vk::ShaderStageFlagBits::eVertex,

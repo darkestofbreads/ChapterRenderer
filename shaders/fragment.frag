@@ -49,7 +49,7 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 worldTransform;
-	vec4 camPosition;
+	vec4 camPos;
 	SceneInfo sceneInfo;
 
 	MeshletBuffer meshletBuffer;
@@ -127,9 +127,6 @@ vec3 CalcSpotLight(SpotLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRo
 	float epsilon   = light.innerCutoff - light.cutoff;
 	float intensity = clamp((theta - light.cutoff) / epsilon, 0.0, 1.0); 
 
-//	float dist        = distance(light.pos.xyz, V);
-//	float attenuation = 1 / (dist * dist);
-//	vec3 radiance     =  attenuation * light.color.xyz;
 	float normaDist = distance(light.pos, V) / light.radius;
 	if(normaDist >= 1.0)
 		return vec3(0);

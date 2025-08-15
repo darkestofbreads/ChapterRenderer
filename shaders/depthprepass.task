@@ -62,8 +62,6 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
-	uint materialIndex;
-	vec3 meshletCol;
 };
 taskPayloadSharedEXT Payload payloadOut;
 
@@ -74,10 +72,7 @@ void main() {
 	payloadOut.triangleOffset = meshlet.triangleOffset;
 
 	MeshletBounds bound = meshletBounds.meshletBounds[ID];
-	payloadOut.meshletCol = bound.coneDirection;
-
 	MeshView mesh = meshViewBuffer.meshViews[bound.meshID];
-	payloadOut.materialIndex = mesh.material;
 
 	// Frustum culling against the meshlets sphere.
 	for (int i = 0; i < 6; i++) {

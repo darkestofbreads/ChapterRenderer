@@ -8,14 +8,7 @@
 #include "common.h"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
 layout(triangles, max_vertices = 3, max_primitives = 1) out;
-layout(location = 1) out vec2 uv[];
-layout(location = 2) flat out uint materialIndex[];
-layout(location = 3) out vec3 position[];
-layout(location = 4) out vec3 normal[];
-
-layout(location = 5) out vec4 meshletColor[];
 
 layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
 	Meshlet meshlets[];
@@ -72,8 +65,6 @@ layout(push_constant, std430) uniform constant
 struct Payload {
 	uint vertexOffset;
 	uint triangleOffset;
-	uint materialIndex;
-	vec3 meshletCol;
 };
 taskPayloadSharedEXT Payload payloadIn;
 
@@ -99,25 +90,5 @@ void main()
 	gl_MeshVerticesEXT[0].gl_Position = projView * vec4(a.position, 1.0);
 	gl_MeshVerticesEXT[1].gl_Position = projView * vec4(b.position, 1.0);
 	gl_MeshVerticesEXT[2].gl_Position = projView * vec4(c.position, 1.0);
-	position[0] = (worldTransform * vec4(a.position, 1)).xyz;
-	position[1] = (worldTransform * vec4(b.position, 1)).xyz;
-	position[2] = (worldTransform * vec4(c.position, 1)).xyz;
-
 	gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
-	uv[0] = vec2(a.u, a.v);
-	uv[1] = vec2(b.u, b.v);
-	uv[2] = vec2(c.u, c.v);
-
-	materialIndex[0] = payloadIn.materialIndex;
-	materialIndex[1] = payloadIn.materialIndex;
-	materialIndex[2] = payloadIn.materialIndex;
-
-	mat3 normalTransform = mat3(transpose(inverse(worldTransform)));
-	normal[0] = normalTransform * a.normal;
-	normal[1] = normalTransform * b.normal;
-	normal[2] = normalTransform * c.normal;
-
-	meshletColor[0] = vec4(payloadIn.meshletCol, 1);
-	meshletColor[1] = vec4(payloadIn.meshletCol, 1);
-	meshletColor[2] = vec4(payloadIn.meshletCol, 1);
 }
