@@ -6,7 +6,7 @@ class Command
 {
 public:
 	Command();
-	Command(Device& device, uint32_t cmdBufferCount = 2);
+	Command(Device& device, uint32_t queueFamilyIndex, uint32_t cmdBufferCount = 2);
 	void Present(vk::PresentInfoKHR info, vk::Queue& queue, vk::Fence& renderFinished);
 	void TransitionImage(vk::Image& image, vk::ImageSubresourceRange& subresourceRange,
 		vk::ImageLayout oldLayout, vk::ImageLayout newLayout,

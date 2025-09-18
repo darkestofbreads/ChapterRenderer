@@ -18,8 +18,9 @@ Device::Device(vk::Instance& instance) {
     std::vector<const char*> deviceExtensions;
     deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME); //
     deviceExtensions.push_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME); //
-    deviceExtensions.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME); //
     deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME); //
+    //deviceExtensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME); //
+    //deviceExtensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
     std::vector<bool> extensionSupported(deviceExtensions.size());
     
     // Query support for main render path extensions.
@@ -44,13 +45,17 @@ Device::Device(vk::Instance& instance) {
 
     // Chain of configured extension features.
 
-    auto unusedAttachmentsFeatures = vk::PhysicalDeviceDynamicRenderingUnusedAttachmentsFeaturesEXT()
-        .setDynamicRenderingUnusedAttachments(vk::True);
+    // GPU support not there yet.
+    //auto fifoLatestReadyFeatures = vk::PhysicalDevicePresentModeFifoLatestReadyFeaturesKHR()
+    //    .setPresentModeFifoLatestReady(vk::True);
+    //auto unifiedImageFeatures = vk::PhysicalDeviceUnifiedImageLayoutsFeaturesKHR()
+    //    .setUnifiedImageLayouts(vk::True)
+    //    .setPNext(&fifoLatestReadyFeatures);
+
     // KHR version explicitly required for ImGui.
     auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
-        .setDynamicRendering(vk::True)
-        .setPNext(&unusedAttachmentsFeatures);
-
+        .setDynamicRendering(vk::True);
+        //.setPNext(&unifiedImageFeatures);
     auto descriptorIndexingFeatures = vk::PhysicalDeviceDescriptorIndexingFeatures()
         .setRuntimeDescriptorArray(vk::True)
         .setPNext(&dynamicRenderingFeaturesIMGUI);
@@ -66,13 +71,14 @@ Device::Device(vk::Instance& instance) {
     auto shaderObjectFeatures = vk::PhysicalDeviceShaderObjectFeaturesEXT()
         .setShaderObject(vk::True)
         .setPNext(&sync2Features);
-    auto vulk14Features = vk::PhysicalDeviceVulkan14Features()
-        .setPushDescriptor(vk::True)
-        .setPNext(&shaderObjectFeatures);
     auto meshShaderFeatures = vk::PhysicalDeviceMeshShaderFeaturesEXT()
         .setMeshShader(vk::True)
         .setTaskShader(vk::True)
-        .setPNext(&vulk14Features);
+        .setPNext(&shaderObjectFeatures);
+    auto vulk14Features = vk::PhysicalDeviceVulkan14Features()
+        .setPushDescriptor(vk::True)
+        .setDynamicRenderingLocalRead(vk::True)
+        .setPNext(&meshShaderFeatures);
 
     // Query queues and create infos.
     auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
@@ -104,7 +110,7 @@ Device::Device(vk::Instance& instance) {
     vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
         .setPEnabledExtensionNames(deviceExtensions)
         .setQueueCreateInfos(deviceQueueInfo)
-        .setPNext(&meshShaderFeatures);
+        .setPNext(&vulk14Features);
 
     device = physicalDevice.createDevice(deviceInfo);
 }

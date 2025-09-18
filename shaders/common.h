@@ -1,6 +1,14 @@
 #ifndef _COMMON_H_
 #define _COMMON_H_
 
+// local_size_x/y should depend on the tile size as follows:
+// 8x8 tile   : 8x8   threads per group
+// 16x16 tile : 16x16 threads per group
+// 32x32 tile : 32x32 threads per group
+#define TILE_SIZE 16
+
+#define MAX_VISIBLE_LIGHTS 1024
+
 struct MeshletBounds
 {
 	vec3 sphereCenter;
@@ -31,8 +39,11 @@ struct SceneInfo {
 	uint meshCount;
 	uint pointLightCount;
 	uint spotLightCount;
-	uint directionLightCount;
-	vec4 flags;
+	uint dirLightCount;
+	uint width;
+	uint height;
+	uint tileCountX;
+	uint tileCountY;
 };
 
 struct Material {
@@ -41,11 +52,52 @@ struct Material {
 	uint emmisive;
 };
 
+struct Plane
+{
+	vec3 normal;
+	float distance;
+};
+
+struct Frustum {
+	Plane top;
+	Plane bottom;
+	Plane right;
+	Plane left;
+	Plane near;
+	Plane far;
+};
+
 struct Vertex {
 	vec3  position;
 	float u;
 	vec3  normal;
 	float v;
+};
+
+struct Sphere {
+	vec3 pos;
+	float r;
+};
+
+//enum LIGHTTYPE {
+//	LIGHT_POINT = 0,
+//	LIGHT_SPOT  = 1,
+//	LIGHT_DIRECTIONAL = 2,
+//	LIGHT_AREA  = 3
+//};
+struct Light {
+	vec3 pos;
+	float radius;
+
+	vec3 color;
+	float falloff;
+
+	vec4 lightDir;
+
+	float cutoff;
+	float innerCutoff;
+	uint textureID;
+	uint lightType;
 };
 
 struct PointLight {

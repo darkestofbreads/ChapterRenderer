@@ -33,14 +33,8 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer{
 layout(buffer_reference, std430) readonly buffer MaterialBuffer{
 	Material materials[];
 };
-layout(buffer_reference, std430) readonly buffer PointLightBuffer{
-	PointLight pointLights[];
-};
-layout(buffer_reference, std430) readonly buffer DirLightBuffer{
-	DirLight dirLights[];
-};
-layout(buffer_reference, std430) readonly buffer SpotLightBuffer{
-	SpotLight spotLights[];
+layout(buffer_reference, std430) readonly buffer LightBuffer{
+	Light lights[];
 };
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
@@ -61,12 +55,10 @@ layout(push_constant, std430) uniform constant
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
 
-	PointLightBuffer pointLightBuffer;
-	SpotLightBuffer spotLightBuffer;
-	DirLightBuffer dirLightBuffer;
+	LightBuffer lightBuffer;
 };
 
-vec3 CalcPointLight(PointLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
+vec3 CalcPointLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
 	vec3 L = normalize(light.pos - V);
 	vec3 H = normalize(L - V);
 
@@ -95,7 +87,7 @@ vec3 CalcPointLight(PointLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallic
 
 	return (kdiffuse * albedo / PI + specular) * radiance * coverage;
 }
-vec3 CalcDirLight(DirLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
+vec3 CalcDirLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
 	vec3 L = -normalize(light.lightDir.xyz);
 	vec3 H = normalize(L - V);
 
@@ -117,7 +109,7 @@ vec3 CalcDirLight(DirLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoug
 
 	return (kdiffuse * albedo / PI + specular) * radiance * coverage;
 }
-vec3 CalcSpotLight(SpotLight light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
+vec3 CalcSpotLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
 	vec3 L      = normalize(light.pos - V);
 	float theta = dot(L, -normalize(light.lightDir.xyz));
 	if(theta < light.cutoff)
@@ -156,9 +148,6 @@ layout(location = 5) in vec4 meshletColor;
 
 layout(location = 0) out vec4 outColor;
 void main() {
-// Implement range discard for each point and spot light.
-// TODO: Forward+
-// TODO: further optimize shader to use MAD instructions and built in operators
 	Material mat = materialBuffer.materials[materialIndex];
 	
 	vec3 fragment = vec3(0);
@@ -168,23 +157,26 @@ void main() {
 
 	mat4 normalTransform = transpose(inverse(worldTransform));
 
-	// Lighting calculations.
 	// Possibly move updates of light positions and normals to a compute shader.
-	for(int i = 0; i < sceneInfo.pointLightCount; i++) {
-			PointLight pointLight = pointLightBuffer.pointLights[i];
-			pointLight.pos = (worldTransform * vec4(pointLight.pos, 1)).xyz;
-			fragment += CalcPointLight(pointLight, pos, N, difFrag.xyz, metallicRoughness);
+	uint index = 0;
+	uint limit = sceneInfo.pointLightCount;
+	for (; index < limit; index++) {
+			Light light = lightBuffer.lights[index];
+			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
+			fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
-	for(int i = 0; i < sceneInfo.spotLightCount; i++) {
-			SpotLight spotLight = spotLightBuffer.spotLights[i];
-			spotLight.pos = (worldTransform * vec4(spotLight.pos, 1)).xyz;
-			spotLight.lightDir = normalTransform * spotLight.lightDir;
-			fragment += CalcSpotLight(spotLight, pos, N, difFrag.xyz, metallicRoughness);
+	
+	for (limit += sceneInfo.spotLightCount; index < limit; index++) {
+			Light light = lightBuffer.lights[index];
+			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
+			light.lightDir = normalTransform * light.lightDir;
+			fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
-	for(int i = 0; i < sceneInfo.directionLightCount; i++) {
-			DirLight dirLight = dirLightBuffer.dirLights[i];
-			dirLight.lightDir = normalTransform * dirLight.lightDir;
-			fragment += CalcDirLight(dirLight, pos, N, difFrag.xyz, metallicRoughness);
+
+	for (limit += sceneInfo.dirLightCount; index < limit; index++) {
+			Light light = lightBuffer.lights[index];
+			light.lightDir = normalTransform * light.lightDir;
+			fragment += CalcDirLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
 
 	// Gamma correction.
@@ -194,6 +186,4 @@ void main() {
 	// Add emissive to final pixel.
 	vec4 emissiveFrag = texture(textures[mat.emmisive], uv);
 	outColor = mix(vec4(fragment, 1), emissiveFrag, dot(emissiveFrag.xyz, vec3(1)));
-
-	//outColor = meshletColor;
 }

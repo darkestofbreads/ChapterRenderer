@@ -4,12 +4,12 @@ Command::Command() {
 
 }
 
-Command::Command(Device& device, uint32_t cmdBufferCount) {
+Command::Command(Device& device, uint32_t queueFamilyIndex, uint32_t cmdBufferCount) {
     pDevice = &device.device;
 
     // Command buffer allocation.
     vk::CommandPoolCreateInfo cmdPoolInfo = vk::CommandPoolCreateInfo()
-        .setQueueFamilyIndex(device.graphicsQueueFamilyIndex)
+        .setQueueFamilyIndex(queueFamilyIndex)
         .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
     cmdPool = device.device.createCommandPool(cmdPoolInfo);
 

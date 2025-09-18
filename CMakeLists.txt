@@ -1,12 +1,12 @@
 ﻿cmake_minimum_required (VERSION 3.8)
 
 project ("ChapterOne")
-file(GLOB SOURCES *.cpp imgui/*.cpp)
+file(GLOB SOURCES *.cpp imgui/*.cpp *.hpp)
 
 find_package(Vulkan REQUIRED)
 
 # GLSL to SPIR-V
-file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task)
+file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task shaders/*.comp)
 set(SPIRV_VERSION "1.4")
 foreach(SHADER ${SHADERS})
     get_filename_component(FILENAME ${SHADER} NAME)
@@ -26,7 +26,7 @@ add_custom_target(CopyAssets
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${ASSETS_DIR} ${TARGET_ASSETS_DIR}
 )
 
-add_executable(ChapterOne ${SOURCES} "shaders/common.h")
+add_executable(ChapterOne ${SOURCES} "shaders/common.h" "GPUBuffer.hpp" "Shader.cpp")
 add_dependencies(ChapterOne CopyAssets)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

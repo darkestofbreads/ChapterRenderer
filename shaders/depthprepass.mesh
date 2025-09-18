@@ -29,14 +29,8 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer{
 layout(buffer_reference, std430) readonly buffer MaterialBuffer{
 	Material materials[];
 };
-layout(buffer_reference, std430) readonly buffer PointLightBuffer{
-	PointLight pointLights[];
-};
-layout(buffer_reference, std430) readonly buffer DirLightBuffer{
-	DirLight dirLights[];
-};
-layout(buffer_reference, std430) readonly buffer SpotLightBuffer{
-	SpotLight spotLights[];
+layout(buffer_reference, std430) readonly buffer LightBuffer{
+	Light lights[];
 };
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
@@ -57,9 +51,7 @@ layout(push_constant, std430) uniform constant
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
 
-	PointLightBuffer pointLightBuffer;
-	SpotLightBuffer spotLightBuffer;
-	DirLightBuffer dirLightBuffer;
+	LightBuffer lightBuffer;
 };
 
 struct Payload {

@@ -5,6 +5,7 @@
 #include "Instance.h"
 #include "Command.h"
 #include "Timer.h"
+#include "GPUBuffer.hpp"
 
 #include "stb_image.h"
 
@@ -53,6 +54,25 @@ struct MaterialIndexGroup {
 	uint32_t metallicRoughness;
 	uint32_t emissive;
 };
+
+struct Light {
+	glm::vec3 pos;
+	float radius;
+
+	glm::vec3 color;
+	float falloff;
+
+	glm::vec4 lightDir;
+
+	float cutoff;
+	float innerCutoff;
+	uint32_t textureID;
+	//	LIGHT_POINT = 0,
+	//	LIGHT_SPOT  = 1,
+	//	LIGHT_DIRECTIONAL = 2,
+	//	LIGHT_AREA  = 3
+	uint32_t lightType;
+};
 struct PointLight {
 	glm::vec3 Position;
 	float radius;
@@ -85,8 +105,11 @@ struct SceneInfo {
 	uint32_t meshCount;
 	uint32_t pointLightCount;
 	uint32_t spotLightCount;
-	uint32_t directionLightCount;
-	glm::vec4 flags;
+	uint32_t dirLightCount;
+	uint32_t windowWidth;
+	uint32_t windowHeight;
+	uint32_t tileCountX;
+	uint32_t tileCountY;
 };
 // Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
@@ -104,23 +127,7 @@ struct PushConstantData {
 	vk::DeviceAddress vertexBufferAddress;
 	vk::DeviceAddress materialBufferAddress;
 
-	vk::DeviceAddress pointLightBufferAddress;
-	vk::DeviceAddress spotLightBufferAddress;
-	vk::DeviceAddress dirLightBufferAddress;
-};
-struct AllocatedBuffer {
-	vk::Buffer buffer;
-	VmaAllocation alloc;
-	VmaAllocationInfo info;
-};
-struct AllocatedImage {
-	vk::Image image;
-	vk::ImageView view;
-	VmaAllocation alloc;
-};
-struct GPUBuffer {
-	AllocatedBuffer buffer;
-	vk::DeviceAddress bufferAddress;
+	vk::DeviceAddress lightBufferAddress;
 };
 struct Chunk {
 	uint32_t blocks[32][32];
@@ -157,6 +164,7 @@ private:
 	bool requestNewSwapchain = false;
 	bool freezeFrustum = false;
 	bool firstTime = true;
+	bool doLightCulling = true;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -174,11 +182,19 @@ private:
 
 	// Textures.
 	void CreateDebugTextures();
-	std::vector<vk::DescriptorSet> imageDescSet;
 	std::vector<AllocatedImage> textures;
-	vk::DescriptorSetLayout imageDescLayout;
 	vk::Sampler nearestSampler;
 	vk::Sampler linearSampler;
+
+	// Depth buffer.
+	AllocatedImage depthTexture;
+
+	// Light indices.
+	AllocatedBuffer lightIndicesBuffer;
+
+	// Descriptor sets.
+	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
+	std::vector<vk::DescriptorSet> descriptorSets;
 
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
@@ -200,9 +216,7 @@ private:
 
 	GPUBuffer meshViewBufferAddress;
 	GPUBuffer materialBufferAddress;
-	GPUBuffer pointLightBufferAddress;
-	GPUBuffer spotLightBufferAddress;
-	GPUBuffer dirLightBufferAddress;
+	GPUBuffer lightBufferAddress;
 
 	glm::mat4 vertexTransform;
 	glm::mat4 worldTransform;
@@ -215,22 +229,31 @@ private:
 	Swapchain swapchain;
 	std::array<AllocatedImage, IMAGE_COUNT> depthImages;
 	vk::ImageSubresourceRange depthSubresourceRange;
+	vk::ImageSubresourceRange stencilSubresourceRange;
+	std::array<AllocatedImage, 2> CreateDepthStencilImages(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
 
 	Instance instance;
 	Timer frameTimer;
 
-	Command command;
+	Command graphicsCommand;
+	Command computeCommand;
 	vk::Queue graphicsQueue;
+	vk::Queue computeQueue;
+
+
 	vk::PipelineLayout pipelineLayout;
 	vk::detail::DispatchLoaderDynamic dldid;
 
 	uint32_t currentFrame = 0;
-	std::array<vk::CommandBuffer, 2> cmdBuffers;
+	std::array<vk::CommandBuffer, 2> graphicsCmdBuffers;
+	std::array<vk::CommandBuffer, 2> computeCmdBuffers;
 	std::array <vk::Semaphore, 2> imageAquiredSemaphores;
 	std::array <vk::Semaphore, 2> renderFinishedSemaphores;
-	std::array <vk::Fence, 2> inFlightFences;
+	std::array <vk::Fence, 2> inFlightGraphicsFences;
+	std::array <vk::Fence, 2> inFlightComputeFences;
 	std::array <AllocatedBuffer, 2> stageBuffers;
-	vk::Fence immediateFence;
+	vk::Fence immediateGraphicsFence;
+	vk::Fence immediateComputeFence;
 
 	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
 	std::vector<Vertex>				vertices;
@@ -243,12 +266,15 @@ private:
 	std::vector<MaterialIndexGroup> materialIndexGroups;
 	std::vector<uint32_t>			materialIndices;
 
-	std::vector<PointLight>			pointLights;
-	std::vector<SpotLight>			spotLights;
-	std::vector<DirLight>			dirLights;
+	std::vector<Light>			    lights;
+	std::vector<Light>			    pointLights;
+	std::vector<Light>			    spotLights;
+	std::vector<Light>			    dirLights;
 
-	std::vector<vk::ShaderEXT> shaders;
+	std::vector<vk::ShaderEXT> forwardShaders;
+	std::vector<vk::ShaderEXT> forwardPlusShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
+	vk::ShaderEXT lightCullingShader;
 
 	std::array<vk::ShaderStageFlagBits, 4> meshStages = {
 	vk::ShaderStageFlagBits::eVertex,

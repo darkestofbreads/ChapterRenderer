@@ -24,46 +24,111 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
-    command.SetCurrentFrame(currentFrame);
-
     double frameTime = frameTimer.GetMilliseconds();
     ImGui_Draw(frameTime);
 
     frameTimer.Reset();
     uint32_t imageIndex;
     if (!AquireImageIndex(imageIndex)) return;
+    graphicsCommand.SetCurrentFrame(currentFrame);
 
     vk::RenderingAttachmentInfo colorAttachment;
     vk::RenderingAttachmentInfo depthAttachment;
     vk::Rect2D renderArea;
     Begin(imageIndex, colorAttachment, depthAttachment, renderArea);
+    PushConstant_Draw();
 
     // Depth pre-pass.
-    cmdBuffers[currentFrame].setDepthTestEnable(vk::True);
-    cmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
-    cmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
-    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
-    cmdBuffers[currentFrame].beginRendering(renderInfo);
+    graphicsCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
+    graphicsCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
+    graphicsCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
+    vk::RenderingInfo renderInfo(vk::RenderingFlagBits::eSuspending, renderArea, 1, 0, colorAttachment, &depthAttachment);
+
+    // Depth prepass.
+    graphicsCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
-        PushConstant_Draw();
-        cmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
-        cmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
+        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+
+        graphicsCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
+        graphicsCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
+    }
+    graphicsCmdBuffers[currentFrame].endRendering();
+
+    // Light culling.
+    if (doLightCulling) {
+        const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+            .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+            .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+            .setImage(depthImages[imageIndex].image)
+            .setSubresourceRange(depthSubresourceRange);
+        const auto depthToComputeDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(depthToComputeBarrier);
+        graphicsCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
+    
+        // Bind depth buffer.
+        auto depthDescriptor = vk::DescriptorImageInfo()
+            .setSampler(nearestSampler)
+            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setImageView(depthImages[imageIndex].view);
+    
+        auto descWrite = vk::WriteDescriptorSet()
+            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+            .setDstSet(descriptorSets[0])
+            .setDstBinding(1)
+            .setDescriptorCount(1)
+            .setImageInfo(depthDescriptor);
+        device.device.updateDescriptorSets(descWrite, nullptr);
+    
+        uint32_t lightCullX = std::ceil(std::ceil(swapchain.renderExtend.height / 16) / 16);
+        uint32_t lightCullY = std::ceil(std::ceil(swapchain.renderExtend.width / 16) / 16);
+        computeCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
+        computeCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
+    
+        const auto lightIndicesBarrier = vk::MemoryBarrier2()
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setSrcAccessMask(vk::AccessFlagBits2::eShaderWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eTaskShaderEXT)
+            .setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
+        const auto lightIndicesDependencyInfo = vk::DependencyInfo()
+            .setMemoryBarriers(lightIndicesBarrier);
+        graphicsCmdBuffers[currentFrame].pipelineBarrier2(lightIndicesDependencyInfo);
+    
+        const auto depthToGraphicsBarrier = vk::ImageMemoryBarrier2()
+            .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+            .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setSrcAccessMask(vk::AccessFlagBits2::eShaderRead)
+            .setOldLayout(vk::ImageLayout::eReadOnlyOptimal)
+            .setNewLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setImage(depthImages[imageIndex].image)
+            .setSubresourceRange(depthSubresourceRange);
+        const auto depthToGraphicsDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(depthToGraphicsBarrier);
+        graphicsCmdBuffers[currentFrame].pipelineBarrier2(depthToGraphicsDependencyInfo);
     }
 
-    // Main pass.
-    cmdBuffers[currentFrame].setDepthTestEnable(vk::True);
-    cmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
-    cmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
-    {
-        PushConstant_Draw();
-        cmdBuffers[currentFrame].bindShadersEXT(meshStages, shaders, dldid);
-        cmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-
-        ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(cmdBuffers[currentFrame]));
+    // Forward shading and specular.
+    renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
+    graphicsCmdBuffers[currentFrame].beginRendering(renderInfo);
+    if (doLightCulling) {
+        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+    }
+    else {
+        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
+        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
 
-    cmdBuffers[currentFrame].endRendering();
+    // Draw UI and end.
+    ImGui::Render();
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(graphicsCmdBuffers[currentFrame]));
+    graphicsCmdBuffers[currentFrame].endRendering();
+
     SubmitAndPresent(imageIndex);
 }
 
@@ -162,9 +227,9 @@ bool Renderer::AquireImageIndex(uint32_t& index) {
 void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea) {
     depthAttachment = vk::RenderingAttachmentInfo()
         .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eDontCare)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
         .setClearValue(vk::ClearDepthStencilValue(1.0f, 0))
-        .setImageLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
         .setImageView(depthImages[imageIndex].view)
         .setResolveMode(vk::ResolveModeFlagBits::eNone)
         .setResolveImageLayout(vk::ImageLayout::eUndefined);
@@ -178,12 +243,14 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
 
     auto beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    cmdBuffers[currentFrame].begin(beginInfo);
+    graphicsCmdBuffers[currentFrame].begin(beginInfo);
+    computeCmdBuffers[currentFrame].begin(beginInfo);
 
-    command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eColorAttachmentWrite);
-    command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
+    graphicsCommand.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone,
+        vk::AccessFlagBits2::eColorAttachmentWrite);
+    graphicsCommand.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite);
-    command.SetDynamicStates(dldid);
+    graphicsCommand.SetDynamicStates(dldid);
 
     auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
@@ -192,11 +259,11 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setWidth(swapchain.renderExtend.width)
         .setX(0)
         .setY(0);
-    cmdBuffers[currentFrame].setViewportWithCount(viewport);
+    graphicsCmdBuffers[currentFrame].setViewportWithCount(viewport);
     auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
         .setOffset({ 0 ,0 });
-    cmdBuffers[currentFrame].setScissorWithCount(scissor);
+    graphicsCmdBuffers[currentFrame].setScissorWithCount(scissor);
 
     renderArea = vk::Rect2D()
         .setExtent(swapchain.renderExtend);
@@ -208,42 +275,59 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
     }
 }
 void Renderer::SubmitImmediate(const std::function<void()>& func) {
-    device.device.resetFences(immediateFence);
+    device.device.resetFences(immediateGraphicsFence);
+    device.device.resetFences(immediateComputeFence);
 
     vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    cmdBuffers[0].begin(beginInfo);
-    cmdBuffers[1].begin(beginInfo);
+    graphicsCmdBuffers[0].begin(beginInfo);
+    graphicsCmdBuffers[1].begin(beginInfo);
+    computeCmdBuffers[0].begin(beginInfo);
+    computeCmdBuffers[1].begin(beginInfo);
 
     func();
 
-    cmdBuffers[0].end();
-    cmdBuffers[1].end();
+    graphicsCmdBuffers[0].end();
+    graphicsCmdBuffers[1].end();
+    computeCmdBuffers[0].end();
+    computeCmdBuffers[1].end();
 
-    vk::SubmitInfo submitInfo = vk::SubmitInfo()
-        .setCommandBuffers(cmdBuffers);
-    graphicsQueue.submit(submitInfo, immediateFence);
-    device.device.waitForFences(immediateFence, false, UINT64_MAX);
+    vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
+        .setCommandBuffers(graphicsCmdBuffers);
+    vk::SubmitInfo computeSubmitInfo = vk::SubmitInfo()
+        .setCommandBuffers(computeCmdBuffers);
+    graphicsQueue.submit(graphicsSubmitInfo, immediateGraphicsFence);
+    computeQueue.submit(computeSubmitInfo, immediateComputeFence);
+    device.device.waitForFences(immediateGraphicsFence, false, UINT64_MAX);
+    device.device.waitForFences(immediateComputeFence, false, UINT64_MAX);
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
-    command.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
-    command.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+    graphicsCommand.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
+    graphicsCommand.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
-    cmdBuffers[currentFrame].end();
-    // Submit work.
-    vk::PipelineStageFlags waitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-    vk::SubmitInfo submitInfo = vk::SubmitInfo()
-        .setCommandBuffers(cmdBuffers[currentFrame])
-        .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
-        .setSignalSemaphores(renderFinishedSemaphores[currentFrame])
-        .setWaitDstStageMask(waitStage);
-    graphicsQueue.submit(submitInfo, inFlightFences[currentFrame]);
+    graphicsCmdBuffers[currentFrame].end();
+    computeCmdBuffers[currentFrame].end();
 
+    // Submit work.
+    vk::PipelineStageFlags graphicsWaitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+    vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
+        .setCommandBuffers(graphicsCmdBuffers[currentFrame])
+        .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
+        .setSignalSemaphores(renderFinishedSemaphores[imageIndex])
+        .setWaitDstStageMask(graphicsWaitStage);
+    graphicsQueue.submit(graphicsSubmitInfo, inFlightGraphicsFences[currentFrame]);
+
+    vk::PipelineStageFlags computeWaitStage = vk::PipelineStageFlagBits::eComputeShader;
+    vk::SubmitInfo computeSubmitInfo = vk::SubmitInfo()
+        .setCommandBuffers(computeCmdBuffers[currentFrame]);
+    computeQueue.submit(computeSubmitInfo, inFlightComputeFences[currentFrame]);
+    
     // Present image.
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
         .setSwapchains(swapchain.swapchain)
         .setImageIndices(imageIndex)
-        .setWaitSemaphores(renderFinishedSemaphores[currentFrame]);
+        .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
         graphicsQueue.presentKHR(info);
     }
@@ -252,21 +336,26 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     }
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
-        device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
-        device.device.resetFences  (inFlightFences[currentFrame]);
+        device.device.waitForFences(inFlightGraphicsFences[currentFrame], false, UINT64_MAX);
+        device.device.waitForFences(inFlightComputeFences[currentFrame], false, UINT64_MAX);
+        device.device.resetFences(inFlightGraphicsFences[currentFrame]);
+        device.device.resetFences(inFlightComputeFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
-        device.device.resetCommandPool(command.cmdPool);
+        device.device.resetCommandPool(graphicsCommand.cmdPool);
         swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
 
     currentFrame = (currentFrame + 1) % 2;
-    device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
-    device.device.resetFences  (inFlightFences[currentFrame]);
+    device.device.waitForFences(inFlightGraphicsFences[currentFrame], false, UINT64_MAX);
+    device.device.waitForFences(inFlightComputeFences[currentFrame], false, UINT64_MAX);
+    device.device.resetFences(inFlightGraphicsFences[currentFrame]);
+    device.device.resetFences(inFlightComputeFences[currentFrame]);
     if (!freezeFrustum && !firstTime)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
-    cmdBuffers[currentFrame].reset();
+    computeCmdBuffers[currentFrame].reset();
+    graphicsCmdBuffers[currentFrame].reset();
     firstTime = false;
 }
 
@@ -302,15 +391,16 @@ void Renderer::CreatePipeline() {
     auto perspectiveRange = vk::PushConstantRange()
         .setOffset(0)
         .setSize(sizeof(PushConstantData))
-        .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment);
+        .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute);
 
-    // Shader object.
-    shaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/fragment.frag.spv", dldid, perspectiveRange, imageDescLayout);
-    depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, imageDescLayout);
+    forwardShaders      = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    forwardPlusShaders  = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardPlusShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    lightCullingShader  = MakeComputeShaderObject(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts);
 
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
-        .setSetLayouts(imageDescLayout);
+        .setSetLayouts(descriptorLayouts);
     pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
 }
 void Renderer::CreateFencesAndSemaphores() {
@@ -319,10 +409,13 @@ void Renderer::CreateFencesAndSemaphores() {
     renderFinishedSemaphores[0] = device.device.createSemaphore(semaphoreInfo);
     imageAquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[1] = device.device.createSemaphore(semaphoreInfo);
-
-    inFlightFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
-    inFlightFences[0] = device.device.createFence(vk::FenceCreateInfo());
-    immediateFence    = device.device.createFence(vk::FenceCreateInfo());
+    
+    inFlightComputeFences[1]  = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
+    inFlightComputeFences[0]  = device.device.createFence(vk::FenceCreateInfo());
+    inFlightGraphicsFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
+    inFlightGraphicsFences[0] = device.device.createFence(vk::FenceCreateInfo());
+    immediateGraphicsFence    = device.device.createFence(vk::FenceCreateInfo());
+    immediateComputeFence     = device.device.createFence(vk::FenceCreateInfo());
 }
 void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     frameTimer = Timer();
@@ -344,7 +437,13 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     vmaCreateAllocator(&allocInfo, &allocator);
 
     depthSubresourceRange = vk::ImageSubresourceRange()
-        .setAspectMask(vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil)
+        .setAspectMask(vk::ImageAspectFlagBits::eDepth)
+        .setBaseMipLevel(0)
+        .setBaseArrayLayer(0)
+        .setLayerCount(1)
+        .setLevelCount(1);
+    stencilSubresourceRange = vk::ImageSubresourceRange()
+        .setAspectMask(vk::ImageAspectFlagBits::eStencil)
         .setBaseMipLevel(0)
         .setBaseArrayLayer(0)
         .setLayerCount(1)
@@ -355,9 +454,15 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
         i = CreateDepthImage();
 
     graphicsQueue = device.device.getQueue(device.graphicsQueueFamilyIndex, 0);
-    command = Command(device);
-    cmdBuffers[0] = command.cmdBuffer[0];
-    cmdBuffers[1] = command.cmdBuffer[1];
+    computeQueue  = device.device.getQueue(device.computeQueueFamilyIndex, 0);
+
+    graphicsCommand = Command(device, device.graphicsQueueFamilyIndex);
+    graphicsCmdBuffers[0] = graphicsCommand.cmdBuffer[0];
+    graphicsCmdBuffers[1] = graphicsCommand.cmdBuffer[1];
+
+    computeCommand  = Command(device, device.computeQueueFamilyIndex);
+    computeCmdBuffers[0] = computeCommand.cmdBuffer[0];
+    computeCmdBuffers[1] = computeCommand.cmdBuffer[1];
 }
 
 // Read 3D model
@@ -474,35 +579,34 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
         if (node.lightIndex.has_value()) {
             const auto& light = asset.lights[node.lightIndex.value()];
             const auto& nodeData = get<fastgltf::TRS>(node.transform);
+            Light l;
             switch (light.type) {
             case fastgltf::LightType::Point:
-                PointLight pl;
-                pl.color    = glm::vec3(light.color.x(), light.color.y(), light.color.z());
-                pl.Position = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
-                pl.falloff  = 0;
-
-                pl.radius = 100;
+                l.lightType = 0;
+                l.color   = glm::vec3(light.color.x(), light.color.y(), light.color.z());
+                l.pos     = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
+                l.falloff = 0;
+                l.radius  = 100;
                 if (light.range.has_value())
-                    pl.radius = light.range.value();
-                pointLights.emplace_back(pl);
+                    l.radius = light.range.value();
+
+                pointLights.emplace_back(l);
                 break;
             case fastgltf::LightType::Spot:
-                SpotLight sl;
-                sl.color       = glm::vec3(light.color.x(), light.color.y(), light.color.z());
-                sl.pos         = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
+                l.color       = glm::vec3(light.color.x(), light.color.y(), light.color.z());
+                l.pos         = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
                 //sl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
-                sl.falloff     = 0;
-                sl.cutoff      = glm::radians(light.outerConeAngle.value());
-                sl.innerCutoff = glm::radians(light.innerConeAngle.value());
+                l.falloff     = 0;
+                l.cutoff      = glm::radians(light.outerConeAngle.value());
+                l.innerCutoff = glm::radians(light.innerConeAngle.value());
                 
-                sl.radius = 100;
+                l.radius = 100;
                 if (light.range.has_value())
-                    sl.radius = light.range.value();
+                    l.radius = light.range.value();
                 //spotLights.emplace_back(sl);
                 break;
             case fastgltf::LightType::Directional:
-                DirLight dl;
-                dl.color = glm::vec4(light.color.x(), light.color.y(), light.color.z(), 1);
+                l.color = glm::vec4(light.color.x(), light.color.y(), light.color.z(), 1);
                 //dl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
                 //dirLights.emplace_back(dl);
                 break;
@@ -694,10 +798,10 @@ GPUBuffer Renderer::UploadData(std::span<T> data) {
     std::function<void()> func = [&]() {
         auto region = vk::BufferCopy()
             .setSize(size);
-        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
+        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
         };
     SubmitImmediate(func);
-    device.device.resetCommandPool(command.cmdPool);
+    device.device.resetCommandPool(graphicsCommand.cmdPool);
     vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 
     return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
@@ -714,7 +818,7 @@ void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffe
         auto region = vk::BufferCopy()
             .setSize(size)
             .setDstOffset(offset);
-        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer.buffer, region);
+        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer.buffer, region);
     };
 
     //SubmitImmediate(func);
@@ -727,7 +831,7 @@ AllocatedBuffer Renderer::CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsa
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
-    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
 
     AllocatedBuffer allocBuffer;
     VkBuffer buffer;
@@ -760,32 +864,19 @@ GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
     std::function<void()> func = [&]() {
         auto vertRegion = vk::BufferCopy()
             .setSize(vertSize);
-        cmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer.buffer, vertRegion);
+        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer.buffer, vertRegion);
     };
     SubmitImmediate(func);
 
-    device.device.resetCommandPool(command.cmdPool);
+    device.device.resetCommandPool(graphicsCommand.cmdPool);
     vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 
     return meshbuffer;
 }
 
 AllocatedImage Renderer::CreateDepthImage() {
-    // Get supported depth format.
-    std::array<vk::Format, 3> depthFormats = {
-        vk::Format::eD32Sfloat,
-        vk::Format::eD32SfloatS8Uint,
-        vk::Format::eD24UnormS8Uint
-    };
-    vk::Format depthFormat;
-    for (auto& f : depthFormats) {
-        auto properties = device.physicalDevice.getFormatProperties(f);
-        if (properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
-            depthFormat = f;
-            break;
-        }
-    }
-    return CreateImage(vk::Format::eD24UnormS8Uint, swapchain.renderExtend, vk::ImageUsageFlagBits::eDepthStencilAttachment, depthSubresourceRange);
+    auto depthStencilImage = CreateDepthStencilImages(swapchain.renderExtend, depthSubresourceRange, stencilSubresourceRange);
+    return depthStencilImage[0];
 }
 AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps) {
     uint32_t mipLevelCount = 1;
@@ -819,6 +910,61 @@ AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk:
     
     return {image, imageView, alloc};
 }
+std::array<AllocatedImage, 2> Renderer::CreateDepthStencilImages(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
+    // Get supported depth format.
+    std::array<vk::Format, 3> depthFormats = {
+        vk::Format::eD32Sfloat,
+        vk::Format::eD32SfloatS8Uint,
+        vk::Format::eD24UnormS8Uint
+    };
+    vk::Format depthStencilFormat;
+    for (auto& f : depthFormats) {
+        auto properties = device.physicalDevice.getFormatProperties(f);
+        if (properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+            depthStencilFormat = f;
+            break;
+        }
+    }
+
+    uint32_t mipLevelCount = 1;
+    //if (makeMipmaps)
+    //    mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
+
+    std::array<uint32_t, 2> queueFamilyIndices = {
+        device.graphicsQueueFamilyIndex,
+        device.computeQueueFamilyIndex
+    };
+
+    auto imageInfo = vk::ImageCreateInfo()
+        .setArrayLayers(1)
+        .setExtent(vk::Extent3D(extend, 1))
+        .setFlags(vk::ImageCreateFlags())
+        .setFormat(depthStencilFormat/*/vk::Format::eD24UnormS8Uint*/)
+        .setSamples(vk::SampleCountFlagBits::e1)
+        .setMipLevels(mipLevelCount)
+        .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled)
+        .setSharingMode(vk::SharingMode::eConcurrent)
+        .setInitialLayout(vk::ImageLayout::eUndefined)
+        .setImageType(vk::ImageType::e2D)
+        .setTiling(vk::ImageTiling::eOptimal)
+        .setQueueFamilyIndices(queueFamilyIndices);
+
+    VmaAllocationCreateInfo imageAllocCreateInfo = {};
+    imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    imageAllocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    vk::Image image;
+    VmaAllocation alloc;
+    auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&image), &alloc, nullptr);
+
+    vk::ImageView depthImageView, stencilImageView;
+    depthImageView = CreateImageView(image, depthStencilFormat, depthSubresource);
+    stencilImageView = CreateImageView(image, depthStencilFormat, stencilSubresource);
+
+    AllocatedImage depthImage = { image, depthImageView, alloc };
+    AllocatedImage stencilImage = { image, stencilImageView, alloc };
+    return { depthImage, stencilImage };
+}
 AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps) {
 
     size_t size = extend.height * extend.width * 4;
@@ -835,7 +981,7 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
     auto image = CreateImage(format, extend, usage | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, subresourceRange, makeMipmaps);
     
     std::function<void()> func = [&]() {
-        command.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+        graphicsCommand.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
             vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eTransferWrite);
 
         auto imageSubresource = vk::ImageSubresourceLayers()
@@ -850,12 +996,12 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
             .setImageExtent(vk::Extent3D(extend, 1))
             .setImageSubresource(imageSubresource);
 
-        command.cmdBuffer[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
-        command.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
+        graphicsCommand.cmdBuffer[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
+        graphicsCommand.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
             vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderSampledRead);
     };
     SubmitImmediate(func);
-    device.device.resetCommandPool(command.cmdPool);
+    device.device.resetCommandPool(graphicsCommand.cmdPool);
 
     return image;
 }
@@ -894,11 +1040,14 @@ void Renderer::CreateDebugTextures() {
 // Temporary functions.
 void Renderer::PushConstant_Draw() {
     SceneInfo sceneInfo;
-    sceneInfo.pointLightCount     = pointLights.size();
-    sceneInfo.spotLightCount      = spotLights.size();
-    sceneInfo.directionLightCount = dirLights.size();
-    sceneInfo.meshCount           = meshViews.size();
-    sceneInfo.flags               = glm::vec4(1);
+    sceneInfo.pointLightCount = pointLights.size();
+    sceneInfo.spotLightCount  = spotLights.size();
+    sceneInfo.dirLightCount   = dirLights.size();
+    sceneInfo.meshCount    = meshViews.size();
+    sceneInfo.windowWidth  = (float)swapchain.renderExtend.width;
+    sceneInfo.windowHeight = (float)swapchain.renderExtend.height;
+    sceneInfo.tileCountX   = (uint32_t)std::ceil(swapchain.renderExtend.width / 16.0f);
+    sceneInfo.tileCountY   = (uint32_t)std::ceil(swapchain.renderExtend.height / 16.0f);
 
     PushConstantData pushConstant{
         vertexTransform,
@@ -915,12 +1064,12 @@ void Renderer::PushConstant_Draw() {
         meshBuffer.bufferAddress,
         materialBufferAddress.bufferAddress,
 
-        pointLightBufferAddress.bufferAddress,
-        spotLightBufferAddress.bufferAddress,
-        dirLightBufferAddress.bufferAddress
+        lightBufferAddress.bufferAddress,
     };
-    cmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, imageDescSet, nullptr);
-    cmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment, 0, sizeof(PushConstantData), &pushConstant);
+    graphicsCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+    graphicsCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
+    computeCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
+    computeCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
 }
 void Renderer::ImGui_Draw(double frameTime) {
     ImGui_ImplVulkan_NewFrame();
@@ -931,6 +1080,7 @@ void Renderer::ImGui_Draw(double frameTime) {
     ImGui::Text(std::format("{:.3f} ms | {:.1f} fps\n", frameTime, 1000 / frameTime).c_str());
     requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
     ImGui::Checkbox("Freeze frustum", &freezeFrustum);
+    ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
 }
 void Renderer::LoadModels_Init() {
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
@@ -982,17 +1132,47 @@ void Renderer::SpawnLights_Init() {
     std::uniform_int_distribution<int> posxzDistrib(-10, 60);
     std::uniform_int_distribution<int> posyDistrib(-10, 20);
     std::uniform_int_distribution<int> rangeDistrib(5, 30);
+    std::uniform_real_distribution<float> colorDistrib(0, 1);
     for (size_t i = 0; i < 100; i++) {
         const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
         const auto dir = centre - pos;
-        spotLights.emplace_back(pos, rangeDistrib(ranGen),
-            glm::vec4(glm::normalize(dir), 1),
-            glm::vec3(1),
-            0.0f, 0.95f, 0.96f);
+
+        Light sl;
+        sl.pos         = pos;
+        sl.radius      = rangeDistrib(ranGen);
+        sl.lightDir    = glm::vec4(glm::normalize(dir), 1);
+        sl.color       = glm::vec3(1);
+        sl.falloff     = 0.0f;
+        sl.cutoff      = 0.95f;
+        sl.innerCutoff = 0.96f;
+        sl.lightType   = 1;
+        spotLights.emplace_back(sl);
     }
-    pointLights.emplace_back(glm::vec3(20.0f, 0.0f, 0.0f), 25.0f, glm::vec3(0.0f, 0.2f, 0.5f), 10.0f);
-    dirLights.emplace_back(glm::vec4(-1.0f, 1.0f, -1.0f, 1), glm::vec4(0.85f, 0.85f, 0.5f, 1));
-    spotLights.emplace_back(glm::vec3(-9.0f, -1.0f, 2.0f), 10.0f, glm::vec4(1.0f, 0.0f, -1.0f, 1), glm::vec3(1), 0.0f, 0.95f, 0.96f);
+    for (size_t i = 0; i < 100; i++) {
+        const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
+        const auto dir = centre - pos;
+
+        Light pl;
+        pl.pos = pos;
+        pl.radius = rangeDistrib(ranGen);
+        pl.color = glm::vec3(colorDistrib(ranGen), colorDistrib(ranGen), colorDistrib(ranGen));
+        pl.falloff = 0.0f;
+        pl.lightType = 0;
+        pointLights.emplace_back(pl);
+    }
+    Light pl;
+    pl.pos     = glm::vec3(20.0f, 0.0f, 0.0f);
+    pl.radius  = 25.0f;
+    pl.color   = glm::vec3(0.0f, 0.2f, 0.5f);
+    pl.falloff = 10.0f;
+    pl.lightType = 0;
+    pointLights.emplace_back(pl);
+
+    Light dl;
+    dl.color     = glm::vec3(0.85f, 0.85f, 0.5f);
+    dl.lightDir  = glm::vec4(-1.0f, 1.0f, -1.0f, 1);
+    dl.lightType = 2;
+    dirLights.emplace_back(dl);
 }
 void Renderer::UploadAll_Init() {
     // Upload geometry and material indices.
@@ -1012,14 +1192,20 @@ void Renderer::UploadAll_Init() {
     // Upload materials.
     if (materialIndexGroups.size() > 0)
         materialBufferAddress   = UploadData<MaterialIndexGroup>(materialIndexGroups);
-
-    // Upload lights.
-    if (pointLights.size() > 0)
-        pointLightBufferAddress = UploadData<PointLight>(pointLights);
+    
+    lights.resize(pointLights.size() + spotLights.size() + dirLights.size());
+    size_t lightMemIndex = 0;
+    if(pointLights.size() > 0)
+        std::memcpy(&lights[lightMemIndex], pointLights.data(), pointLights.size() * sizeof(Light));
+    lightMemIndex += pointLights.size();
     if (spotLights.size() > 0)
-        spotLightBufferAddress  = UploadData<SpotLight>(spotLights);
+        std::memcpy(&lights[lightMemIndex], spotLights.data(), spotLights.size() * sizeof(Light));
+    lightMemIndex += spotLights.size();
     if (dirLights.size() > 0)
-        dirLightBufferAddress   = UploadData<DirLight>(dirLights);
+        std::memcpy(&lights[lightMemIndex], dirLights.data(), dirLights.size() * sizeof(Light));
+
+    if (lights.size() > 0)
+        lightBufferAddress = UploadData<Light>(lights);
 }
 void Renderer::CreateSamplers_Init() {
     auto nearestSamplerInfo = vk::SamplerCreateInfo()
@@ -1039,34 +1225,55 @@ void Renderer::CreateSamplers_Init() {
     linearSampler = device.device.createSampler(linearSamplerInfo);
 }
 void Renderer::CreateDescSets_Init() {
-    // Set bindings for the push descriptor (textures are on set = 0, binding = 0).
-    auto layoutBinding = vk::DescriptorSetLayoutBinding()
+    std::vector<vk::DescriptorSetLayoutBinding> layoutBindings = {
+        vk::DescriptorSetLayoutBinding()
         .setBinding(0)
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
         .setDescriptorCount(textures.size())
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment);
-    auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
-        .setBindings(layoutBinding);
-    imageDescLayout = device.device.createDescriptorSetLayout(descriptorLayoutInfo);
-
-    // Descriptor pool.
-    auto imagePoolSize = vk::DescriptorPoolSize()
+        .setStageFlags(vk::ShaderStageFlagBits::eFragment),
+        vk::DescriptorSetLayoutBinding()
+        .setBinding(1)
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eCompute),
+        vk::DescriptorSetLayoutBinding()
+        .setBinding(2)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+        .setDescriptorCount(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eCompute)
+    };
+    std::vector<vk::DescriptorPoolSize> descPoolSizes = {
+        vk::DescriptorPoolSize()
         .setType(vk::DescriptorType::eCombinedImageSampler)
-        // Change to frames in flight count.
-        .setDescriptorCount(textures.size());
-    auto imagePoolInfo = vk::DescriptorPoolCreateInfo()
-        // Change to frames in flight count.
+        .setDescriptorCount(textures.size()),
+        vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1),
+        vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eStorageBuffer)
+        .setDescriptorCount(1)
+    };
+    
+    auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
+        .setBindings(layoutBindings);
+    descriptorLayouts.emplace_back(device.device.createDescriptorSetLayout(descriptorLayoutInfo));
+    
+    auto descPoolInfo = vk::DescriptorPoolCreateInfo()
         .setMaxSets(1)
-        .setPoolSizes(imagePoolSize);
-    auto imagePool = device.device.createDescriptorPool(imagePoolInfo);
-
-    // Descriptor set.
-    auto imageDescAlloc = vk::DescriptorSetAllocateInfo()
-        .setDescriptorPool(imagePool)
-        .setSetLayouts(imageDescLayout);
-    imageDescSet = device.device.allocateDescriptorSets(imageDescAlloc);
-
-    // Write to descriptors.
+        .setPoolSizes(descPoolSizes);
+    auto descPool = device.device.createDescriptorPool(descPoolInfo);
+    
+    // Descriptor sets.
+    auto descAlloc = vk::DescriptorSetAllocateInfo()
+        .setDescriptorPool(descPool)
+        .setSetLayouts(descriptorLayouts);
+    descriptorSets = device.device.allocateDescriptorSets(descAlloc);
+    
+    // Buffers.
+    const size_t indicesSize = 1024 * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
+    lightIndicesBuffer = CreateBuffer(indicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    
+    // Descriptors.
     std::vector<vk::DescriptorImageInfo> imageDescriptors;
     imageDescriptors.reserve(textures.size());
     for (size_t i = 0; i < textures.size(); i++) {
@@ -1074,20 +1281,40 @@ void Renderer::CreateDescSets_Init() {
             .setSampler(nearestSampler)
             .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
             .setImageView(textures[i].view);
-
+    
         imageDescriptors.emplace_back(imageDescriptor);
     }
-    auto descWrite = vk::WriteDescriptorSet()
+    auto depthDescriptor = vk::DescriptorImageInfo()
+        .setSampler(nearestSampler)
+        .setImageLayout(vk::ImageLayout::eDepthReadOnlyOptimal)
+        .setImageView(depthImages[0].view);
+    auto lightIndicesDescriptor = vk::DescriptorBufferInfo()
+        .setBuffer(lightIndicesBuffer.buffer)
+        .setRange(indicesSize);
+
+    std::vector<vk::WriteDescriptorSet> descWrite = {
+        vk::WriteDescriptorSet()
         .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDstSet(imageDescSet[0])
+        .setDstSet(descriptorSets[0])
         .setDstBinding(0)
         .setDescriptorCount(imageDescriptors.size())
-        .setImageInfo(imageDescriptors);
-    std::array<vk::WriteDescriptorSet, 1> descWrites{
-        descWrite
+        .setImageInfo(imageDescriptors),
+        vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
+        .setDstSet(descriptorSets[0])
+        .setDstBinding(1)
+        .setDescriptorCount(1)
+        .setImageInfo(depthDescriptor),
+        vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+        .setDstSet(descriptorSets[0])
+        .setDstBinding(2)
+        .setDescriptorCount(1)
+        .setBufferInfo(lightIndicesDescriptor)
     };
-
-    std::function<void()> descFunc = [&]() { device.device.updateDescriptorSets(descWrites, nullptr); };
+    
+    std::function<void()> descFunc = [&]() { device.device.updateDescriptorSets(descWrite, nullptr); };
     SubmitImmediate(descFunc);
-    device.device.resetCommandPool(command.cmdPool);
+    device.device.resetCommandPool(graphicsCommand.cmdPool);
+    device.device.resetCommandPool(computeCommand.cmdPool);
 }

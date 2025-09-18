@@ -1,16 +1,14 @@
 #pragma once
-
 #include <vulkan/vulkan.hpp>
-#include <vector>
 
-class Shader
-{
-};
+#include <fstream>
+#include <iostream>
+
+#include <vector>
+#include <span>
 
 std::vector<uint32_t> ReadSPIRVFile(const char* fileName);
-std::vector<vk::ShaderEXT> MakeMeshShaderObjects(vk::Device& device, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV,
- vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, vk::DescriptorSetLayout& setLayout);
+
+vk::ShaderEXT MakeComputeShaderObject(vk::Device& device, const char* computeShaderFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
 std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
-    const char* taskShaderFileNameSPIRV, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV,
-    vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, vk::DescriptorSetLayout& setLayout);
-std::vector<vk::ShaderEXT> MakeFallbackShaderObjects(vk::Device& device, const char* vertexFileNameSPIRV, const char* fragmentFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl);
+    const char* taskShaderFileNameSPIRV, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
