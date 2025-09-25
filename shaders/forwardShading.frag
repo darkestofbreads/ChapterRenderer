@@ -12,7 +12,11 @@ layout(location = 2) flat in uint materialIndex;
 layout(location = 3) in vec3 pos;
 layout(location = 4) in vec3 normal;
 
-layout(set = 0, binding = 0) uniform sampler2D textures[];
+layout(set = 0, binding = 0) uniform sampler2D Textures[];
+layout(set = 0, binding = 1) uniform sampler2D Depth;
+layout(set = 0, binding = 2) readonly buffer LightIndices {
+    int lightIndices[];
+};
 
 layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
 	Meshlet meshlets[];
@@ -39,13 +43,7 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(push_constant, std430) uniform constant
-{
-	mat4 projView;
-	mat4 worldTransform;
-	vec4 camPos;
-	SceneInfo sceneInfo;
-
+layout(set = 0, binding = 3) uniform BufferAddresses {
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
@@ -54,8 +52,16 @@ layout(push_constant, std430) uniform constant
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
-
 	LightBuffer lightBuffer;
+};
+
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 view;
+	mat4 proj;
+	vec4 camPos;
+	SceneInfo sceneInfo;
 };
 
 vec3 CalcPointLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
@@ -152,23 +158,23 @@ void main() {
 	
 	vec3 fragment = vec3(0);
 	vec3 N = normalize(normal);
-	vec4 difFrag = texture(textures[mat.diffuse], uv);
-	vec4 metallicRoughness = texture(textures[mat.metallicRoughness], uv);
+	vec4 difFrag = texture(Textures[mat.diffuse], uv);
+	vec4 metallicRoughness = texture(Textures[mat.metallicRoughness], uv);
 
-	mat4 normalTransform = transpose(inverse(worldTransform));
+	mat4 normalTransform = transpose(inverse(view));
 
 	// Possibly move updates of light positions and normals to a compute shader.
 	uint index = 0;
 	uint limit = sceneInfo.pointLightCount;
 	for (; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
-			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
+			light.pos = (view * vec4(light.pos, 1)).xyz;
 			fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
 	
 	for (limit += sceneInfo.spotLightCount; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
-			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
+			light.pos = (view * vec4(light.pos, 1)).xyz;
 			light.lightDir = normalTransform * light.lightDir;
 			fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
@@ -184,6 +190,6 @@ void main() {
 	fragment = pow(fragment, vec3(1.0/2.2));
 	
 	// Add emissive to final pixel.
-	vec4 emissiveFrag = texture(textures[mat.emmisive], uv);
+	vec4 emissiveFrag = texture(Textures[mat.emmisive], uv);
 	outColor = mix(vec4(fragment, 1), emissiveFrag, dot(emissiveFrag.xyz, vec3(1)));
 }

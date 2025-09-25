@@ -32,13 +32,7 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(push_constant, std430) uniform constant
-{
-	mat4 projView;
-	mat4 worldTransform;
-	vec4 camPos;
-	SceneInfo sceneInfo;
-
+layout(set = 0, binding = 3) uniform BufferAddresses {
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
@@ -47,8 +41,16 @@ layout(push_constant, std430) uniform constant
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
-
 	LightBuffer lightBuffer;
+};
+
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 view;
+	mat4 proj;
+	vec4 camPos;
+	SceneInfo sceneInfo;
 };
 
 struct Payload {

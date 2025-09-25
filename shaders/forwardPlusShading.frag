@@ -15,7 +15,7 @@ layout(location = 4) in vec3 normal;
 layout(set = 0, binding = 0) uniform sampler2D Textures[];
 layout(set = 0, binding = 1) uniform sampler2D Depth;
 layout(set = 0, binding = 2) readonly buffer LightIndices {
-    int lightsIndices[];
+    int lightIndices[];
 };
 
 layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
@@ -43,13 +43,7 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(push_constant, std430) uniform constant
-{
-	mat4 projView;
-	mat4 worldTransform;
-	vec4 camPos;
-	SceneInfo sceneInfo;
-
+layout(set = 0, binding = 3) uniform BufferAddresses {
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
@@ -58,8 +52,16 @@ layout(push_constant, std430) uniform constant
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
-
 	LightBuffer lightBuffer;
+};
+
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 view;
+	mat4 proj;
+	vec4 camPos;
+	SceneInfo sceneInfo;
 };
 
 vec3 CalcPointLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
@@ -159,24 +161,28 @@ void main() {
 	vec4 difFrag           = texture(Textures[mat.diffuse], uv);
 	vec4 metallicRoughness = texture(Textures[mat.metallicRoughness], uv);
 	
-	mat4 normalTransform = transpose(inverse(worldTransform));
-		
-	vec2 tileID       = ceil(gl_FragCoord.xy * vec2(sceneInfo.tileCountX, sceneInfo.tileCountY));
-	uint tileIndex    = uint(tileID.y * sceneInfo.tileCountX + tileID.x);
-    uint lightsOffset = tileIndex * 1024;
+	mat4 normalTransform = transpose(inverse(view));
+	
+	ivec2 tileID   = ivec2(gl_FragCoord.xy / TILE_SIZE);
+	uint tileIndex = tileID.y * sceneInfo.tileCountX + tileID.x;
 
-	// Possibly move updates of light positions and normals to a compute shader.
+	uint offset = tileIndex * MAX_VISIBLE_LIGHTS;
+	uint i;
+	for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
+		int lightindex = lightIndices[i + offset];
+		if (lightindex == -1) break;
+
+		Light light = lightBuffer.lights[lightindex];
+		light.pos = (view * vec4(light.pos, 1)).xyz;
+		fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
+	}
+
 	uint index = 0;
 	uint limit = sceneInfo.pointLightCount;
-	for (; index < limit; index++) {
-			Light light = lightBuffer.lights[index];
-			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
-			fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
-	}
-	
+	index = sceneInfo.spotLightCount;
 	for (limit += sceneInfo.spotLightCount; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
-			light.pos = (worldTransform * vec4(light.pos, 1)).xyz;
+			light.pos = (view * vec4(light.pos, 1)).xyz;
 			light.lightDir = normalTransform * light.lightDir;
 			fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}

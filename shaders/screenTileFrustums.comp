@@ -1,0 +1,103 @@
+#version 450
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_8bit_storage : require
+
+#include "common.h"
+
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 1) in;
+
+layout(set = 0, binding = 4) writeonly buffer TileFrustums {
+    Frustum tileFrustums[];
+};
+
+layout(buffer_reference, std430) readonly buffer MeshletBuffer{ 
+	Meshlet meshlets[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletVertexBuffer{ 
+	uint meshletVertices[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletTriangleBuffer{ 
+	uint8_t meshletTriangles[];
+};
+layout(buffer_reference, std430) readonly buffer MeshletBoundBuffer{ 
+	MeshletBounds meshletBounds[];
+};
+
+layout(buffer_reference, std430) readonly buffer VertexBuffer{ 
+	Vertex vertices[];
+};
+layout(buffer_reference, std430) readonly buffer MaterialBuffer{
+	Material materials[];
+};
+layout(buffer_reference, std430) readonly buffer LightBuffer{
+	Light lights[];
+};
+layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
+	MeshView meshViews[];
+};
+layout(set = 0, binding = 3) uniform BufferAddresses {
+	MeshletBuffer meshletBuffer;
+	MeshletVertexBuffer meshletVertices;
+	MeshletTriangleBuffer meshletTriangles;
+	MeshletBoundBuffer meshletBounds;
+
+	MeshViewBuffer meshViewBuffer;
+	VertexBuffer vertexBuffer;
+	MaterialBuffer materialBuffer;
+	LightBuffer lightBuffer;
+};
+
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 view;
+	mat4 proj;
+	vec4 camPos;
+	SceneInfo sceneInfo;
+};
+
+vec4 ClipToView(vec4 clip) {
+    vec4 view = inverse(proj) * clip;
+    view = view / view.w;
+    return view;
+}
+vec4 ScreenToView(vec4 screen) {
+    vec2 coord = screen.xy / vec2(sceneInfo.width, sceneInfo.height);
+    vec4 clip  = vec4( vec2(coord.x, coord.y) * 2.0 - 1.0, screen.z, screen.w );
+    return ClipToView(clip);
+}
+
+Plane ComputePlane(vec3 p0, vec3 p1, vec3 p2) {
+    Plane plane;
+    vec3 v0 = p1 - p0;
+    vec3 v1 = p2 - p0;
+
+    plane.normal = normalize( cross(v0, v1) );
+    plane.dist   = dot(plane.normal, p0);
+    return plane;
+}
+
+void main() {
+    if (gl_GlobalInvocationID.x >= sceneInfo.tileCountX || gl_GlobalInvocationID.y >= sceneInfo.tileCountY) return;
+	uint index = gl_GlobalInvocationID.y * sceneInfo.tileCountX + gl_GlobalInvocationID.x;
+
+    vec4 screenSpace[4];
+    screenSpace[0] = vec4( vec2(gl_GlobalInvocationID.x    , gl_GlobalInvocationID.y    ) * TILE_SIZE, -1.0, 1.0 );
+    screenSpace[1] = vec4( vec2(gl_GlobalInvocationID.x + 1, gl_GlobalInvocationID.y    ) * TILE_SIZE, -1.0, 1.0 );
+    screenSpace[2] = vec4( vec2(gl_GlobalInvocationID.x    , gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0, 1.0 );
+    screenSpace[3] = vec4( vec2(gl_GlobalInvocationID.x + 1, gl_GlobalInvocationID.y + 1) * TILE_SIZE, -1.0, 1.0 );
+
+    vec3 viewSpace[4];
+    for (int i = 0; i < 4; i++)
+        viewSpace[i] = ScreenToView(screenSpace[i]).xyz;
+
+    Frustum f;
+    const vec3 eyePos = vec3( 0, 0, 0 );
+    f.planes[0] = ComputePlane(eyePos, viewSpace[2], viewSpace[0]);
+    f.planes[1] = ComputePlane(eyePos, viewSpace[1], viewSpace[3]);
+    f.planes[2] = ComputePlane(eyePos, viewSpace[0], viewSpace[1]);
+    f.planes[3] = ComputePlane(eyePos, viewSpace[3], viewSpace[2]);
+    tileFrustums[index] = f;
+}

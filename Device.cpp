@@ -82,32 +82,23 @@ Device::Device(vk::Instance& instance) {
 
     // Query queues and create infos.
     auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-    graphicsQueueFamilyIndex = 0;
-    computeQueueFamilyIndex = 0;
-    for (size_t i = 0; i < queueFamilyProperties.size(); i++)
+    graphicsComputeQueueFamilyIndex = 0;
+    for (size_t i = 0; i < queueFamilyProperties.size(); i++) {
         if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
-            graphicsQueueFamilyIndex = i;
-            break;
+            if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute) {
+                graphicsComputeQueueFamilyIndex = i;
+                break;
+            }
         }
-    for (size_t i = 0; i < queueFamilyProperties.size(); i++)
-        if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute) {
-            if (i == graphicsQueueFamilyIndex)
-                continue;
-            computeQueueFamilyIndex = i;
-            break;
-        }
+    }
 
-    vk::DeviceQueueCreateInfo deviceQueueInfo[2];
-    float graphicsPrio = 1.0f, computePrio = 1.0f;
-    deviceQueueInfo[0] = vk::DeviceQueueCreateInfo()
-        .setQueueFamilyIndex(graphicsQueueFamilyIndex)
-        .setQueuePriorities(graphicsPrio);
-    deviceQueueInfo[1] = vk::DeviceQueueCreateInfo()
-        .setQueueFamilyIndex(computeQueueFamilyIndex)
-        .setQueuePriorities(computePrio);
+    float queuePriority = 1.0f;
+    auto deviceQueueInfo = vk::DeviceQueueCreateInfo()
+        .setQueueFamilyIndex(graphicsComputeQueueFamilyIndex)
+        .setQueuePriorities(queuePriority);
 
     // Create a logical device.
-    vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
+    auto deviceInfo = vk::DeviceCreateInfo()
         .setPEnabledExtensionNames(deviceExtensions)
         .setQueueCreateInfos(deviceQueueInfo)
         .setPNext(&vulk14Features);

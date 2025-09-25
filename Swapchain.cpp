@@ -107,7 +107,7 @@ void Swapchain::CreateImageViews() {
 
     imageViews.clear();
     for (auto& i : images) {
-        vk::ImageViewCreateInfo imageViewInfo = vk::ImageViewCreateInfo()
+        auto imageViewInfo = vk::ImageViewCreateInfo()
             .setComponents(compMapping)
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(renderFormat)

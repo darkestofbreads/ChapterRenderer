@@ -33,6 +33,10 @@
 #include <vector>
 #include <random>
 
+constexpr uint32_t TILE_SIZE = 16;
+constexpr uint32_t MAX_LIGHTS_PER_TILE = 128;
+// Don't change from 2 unless you have good reasons to.
+
 struct Vertex {
 	glm::vec3 Position;
 	float U;
@@ -111,23 +115,26 @@ struct SceneInfo {
 	uint32_t tileCountX;
 	uint32_t tileCountY;
 };
-// Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
-struct PushConstantData {
-	glm::mat4 projView;
-	glm::mat4 worldTransform;
-	glm::vec4 camPos;
-	SceneInfo sceneInfo;
-
+struct BufferAddresses {
 	vk::DeviceAddress meshletsAddress;
 	vk::DeviceAddress meshletVerticesAddress;
+
 	vk::DeviceAddress meshletTrianglesAddress;
 	vk::DeviceAddress meshletBoundsAddress;
 
 	vk::DeviceAddress meshViewBufferAddress;
 	vk::DeviceAddress vertexBufferAddress;
-	vk::DeviceAddress materialBufferAddress;
 
+	vk::DeviceAddress materialBufferAddress;
 	vk::DeviceAddress lightBufferAddress;
+};
+// Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
+struct PushConstantData {
+	glm::mat4 projView;
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::vec4 camPos;
+	SceneInfo sceneInfo;
 };
 struct Chunk {
 	uint32_t blocks[32][32];
@@ -165,6 +172,7 @@ private:
 	bool freezeFrustum = false;
 	bool firstTime = true;
 	bool doLightCulling = true;
+	bool drawUI = true;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -186,11 +194,17 @@ private:
 	vk::Sampler nearestSampler;
 	vk::Sampler linearSampler;
 
-	// Depth buffer.
-	AllocatedImage depthTexture;
-
 	// Light indices.
 	AllocatedBuffer lightIndicesBuffer;
+	size_t lightIndicesSize;
+
+	// Tile frustums.
+	AllocatedBuffer tileFrustumBuffer;
+	size_t tileFrustumsSize;
+
+	// Buffer addresses.
+	GPUBuffer bufferAddressBuffer;
+	BufferAddresses bufferAddresses;
 
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
@@ -201,11 +215,14 @@ private:
 
 	GPUBuffer meshBuffer;
 	AllocatedBuffer CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage);
-	//AllocatedBuffer stageBuffer;
+	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator;
 
 	template<typename T>
 	GPUBuffer UploadData(std::span<T> data);
+	template<typename T>
+	GPUBuffer UploadData(T&& data);
+
 	template<typename T>
 	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset = 0);
 
@@ -218,8 +235,9 @@ private:
 	GPUBuffer materialBufferAddress;
 	GPUBuffer lightBufferAddress;
 
-	glm::mat4 vertexTransform;
-	glm::mat4 worldTransform;
+	glm::mat4 projViewTransform;
+	glm::mat4 view;
+	glm::mat4 proj;
 	glm::vec3 position  = glm::vec3(0);
 	glm::vec3 direction = glm::vec3(0, 0, 1.0f);
 
@@ -235,25 +253,19 @@ private:
 	Instance instance;
 	Timer frameTimer;
 
-	Command graphicsCommand;
-	Command computeCommand;
-	vk::Queue graphicsQueue;
-	vk::Queue computeQueue;
-
+	Command graphicsComputeCommand;
+	vk::Queue graphicsComputeQueue;
 
 	vk::PipelineLayout pipelineLayout;
 	vk::detail::DispatchLoaderDynamic dldid;
 
 	uint32_t currentFrame = 0;
-	std::array<vk::CommandBuffer, 2> graphicsCmdBuffers;
-	std::array<vk::CommandBuffer, 2> computeCmdBuffers;
-	std::array <vk::Semaphore, 2> imageAquiredSemaphores;
-	std::array <vk::Semaphore, 2> renderFinishedSemaphores;
-	std::array <vk::Fence, 2> inFlightGraphicsFences;
-	std::array <vk::Fence, 2> inFlightComputeFences;
-	std::array <AllocatedBuffer, 2> stageBuffers;
-	vk::Fence immediateGraphicsFence;
-	vk::Fence immediateComputeFence;
+	std::array<vk::CommandBuffer, MAX_FRAMES_IN_FLIGHT> graphCompCmdBuffers;
+	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> imageAquiredSemaphores;
+	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores;
+	std::array <vk::Fence, MAX_FRAMES_IN_FLIGHT> inFlightFences;
+	std::array <AllocatedBuffer, MAX_FRAMES_IN_FLIGHT> stageBuffers;
+	vk::Fence immediateFence;
 
 	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
 	std::vector<Vertex>				vertices;
@@ -275,6 +287,7 @@ private:
 	std::vector<vk::ShaderEXT> forwardPlusShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	vk::ShaderEXT lightCullingShader;
+	vk::ShaderEXT screenTileFrustumsShader;
 
 	std::array<vk::ShaderStageFlagBits, 4> meshStages = {
 	vk::ShaderStageFlagBits::eVertex,

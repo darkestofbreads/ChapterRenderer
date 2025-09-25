@@ -7,7 +7,7 @@
 // 32x32 tile : 32x32 threads per group
 #define TILE_SIZE 16
 
-#define MAX_VISIBLE_LIGHTS 1024
+#define MAX_VISIBLE_LIGHTS 128
 
 struct MeshletBounds
 {
@@ -55,16 +55,11 @@ struct Material {
 struct Plane
 {
 	vec3 normal;
-	float distance;
+	float dist;
 };
 
 struct Frustum {
-	Plane top;
-	Plane bottom;
-	Plane right;
-	Plane left;
-	Plane near;
-	Plane far;
+	Plane planes[6];
 };
 
 struct Vertex {

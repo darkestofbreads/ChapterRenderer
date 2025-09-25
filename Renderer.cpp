@@ -24,13 +24,12 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
-    double frameTime = frameTimer.GetMilliseconds();
-    ImGui_Draw(frameTime);
-
-    frameTimer.Reset();
     uint32_t imageIndex;
     if (!AquireImageIndex(imageIndex)) return;
-    graphicsCommand.SetCurrentFrame(currentFrame);
+
+    double frameTime = frameTimer.GetMilliseconds();
+    if (drawUI) ImGui_Draw(frameTime);
+    frameTimer.Reset();
 
     vk::RenderingAttachmentInfo colorAttachment;
     vk::RenderingAttachmentInfo depthAttachment;
@@ -38,25 +37,50 @@ void Renderer::Draw() {
     Begin(imageIndex, colorAttachment, depthAttachment, renderArea);
     PushConstant_Draw();
 
+    // Fill screen tile frustum buffer if FOV or resolution changes.
+    if (firstTime || requestNewSwapchain) {
+        uint32_t lightCullX = (swapchain.renderExtend.width + (swapchain.renderExtend.width % 16)) / 16;
+        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
+
+        const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+            .setBuffer(tileFrustumBuffer.buffer)
+            .setSize(tileFrustumsSize);
+
+        const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
+            .setBufferMemoryBarriers(tileFrustumsBarrier);
+
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
+    }
+
     // Depth pre-pass.
-    graphicsCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
-    graphicsCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
-    graphicsCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
+    graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
+    graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
+    graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
     vk::RenderingInfo renderInfo(vk::RenderingFlagBits::eSuspending, renderArea, 1, 0, colorAttachment, &depthAttachment);
 
     // Depth prepass.
-    graphicsCmdBuffers[currentFrame].beginRendering(renderInfo);
+    graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
-        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
-        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
 
-        graphicsCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
-        graphicsCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
+        graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
+        graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
     }
-    graphicsCmdBuffers[currentFrame].endRendering();
+    graphCompCmdBuffers[currentFrame].endRendering();
 
     // Light culling.
     if (doLightCulling) {
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
+
         const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
             .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -64,17 +88,17 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
             .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
             .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-            .setImage(depthImages[imageIndex].image)
+            .setImage(depthImages[0].image)
             .setSubresourceRange(depthSubresourceRange);
         const auto depthToComputeDependencyInfo = vk::DependencyInfo()
             .setImageMemoryBarriers(depthToComputeBarrier);
-        graphicsCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
     
         // Bind depth buffer.
         auto depthDescriptor = vk::DescriptorImageInfo()
             .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImageView(depthImages[imageIndex].view);
+            .setImageLayout(vk::ImageLayout::eReadOnlyOptimal)
+            .setImageView(depthImages[0].view);
     
         auto descWrite = vk::WriteDescriptorSet()
             .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
@@ -84,20 +108,19 @@ void Renderer::Draw() {
             .setImageInfo(depthDescriptor);
         device.device.updateDescriptorSets(descWrite, nullptr);
     
-        uint32_t lightCullX = std::ceil(std::ceil(swapchain.renderExtend.height / 16) / 16);
-        uint32_t lightCullY = std::ceil(std::ceil(swapchain.renderExtend.width / 16) / 16);
-        computeCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
-        computeCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
-    
-        const auto lightIndicesBarrier = vk::MemoryBarrier2()
+        uint32_t lightCullX = (swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16;
+        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
+        graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
+        
+        const auto lightIndicesBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
-            .setSrcAccessMask(vk::AccessFlagBits2::eShaderWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eTaskShaderEXT)
-            .setDstAccessMask(vk::AccessFlagBits2::eMemoryRead);
-        const auto lightIndicesDependencyInfo = vk::DependencyInfo()
-            .setMemoryBarriers(lightIndicesBarrier);
-        graphicsCmdBuffers[currentFrame].pipelineBarrier2(lightIndicesDependencyInfo);
-    
+            .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+            .setBuffer(lightIndicesBuffer.buffer)
+            .setSize(lightIndicesSize);
+
         const auto depthToGraphicsBarrier = vk::ImageMemoryBarrier2()
             .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
             .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -105,29 +128,35 @@ void Renderer::Draw() {
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderRead)
             .setOldLayout(vk::ImageLayout::eReadOnlyOptimal)
             .setNewLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImage(depthImages[imageIndex].image)
+            .setImage(depthImages[0].image)
             .setSubresourceRange(depthSubresourceRange);
-        const auto depthToGraphicsDependencyInfo = vk::DependencyInfo()
-            .setImageMemoryBarriers(depthToGraphicsBarrier);
-        graphicsCmdBuffers[currentFrame].pipelineBarrier2(depthToGraphicsDependencyInfo);
+
+        const auto lightCullingDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(depthToGraphicsBarrier)
+            .setBufferMemoryBarriers(lightIndicesBarrier);
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightCullingDependencyInfo);
     }
 
     // Forward shading and specular.
     renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
-    graphicsCmdBuffers[currentFrame].beginRendering(renderInfo);
+    graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     if (doLightCulling) {
-        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
-        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
     else {
-        graphicsCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
-        graphicsCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
 
-    // Draw UI and end.
-    ImGui::Render();
-    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(graphicsCmdBuffers[currentFrame]));
-    graphicsCmdBuffers[currentFrame].endRendering();
+    if (drawUI) {
+        ImGui::Render();
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(graphCompCmdBuffers[currentFrame]));
+    }
+
+    graphCompCmdBuffers[currentFrame].endRendering();
 
     SubmitAndPresent(imageIndex);
 }
@@ -200,11 +229,12 @@ void Renderer::BuildGlobalTransform() {
     const float fovY  = 90.0f;
     const auto up     = glm::vec3(0, 1.0f, 0);
 
-    worldTransform = glm::lookAt(position, position + direction, up);
-    vertexTransform = {
-        glm::perspective(glm::radians(fovY), ratio, near, far) * worldTransform
+    view = glm::lookAt(position, position + direction, up);
+    proj = glm::perspective(glm::radians(fovY), ratio, near, far);
+    projViewTransform = {
+        proj * view
     };
-    const auto frustum = ExtractFrustum(vertexTransform);
+    const auto frustum = ExtractFrustum(projViewTransform);
     vertices[0] = { frustum[0].xyz, frustum[0].w, glm::vec3(0), 0 };
     vertices[1] = { frustum[1].xyz, frustum[1].w, glm::vec3(0), 0 };
     vertices[2] = { frustum[2].xyz, frustum[2].w, glm::vec3(0), 0 };
@@ -230,7 +260,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setStoreOp(vk::AttachmentStoreOp::eStore)
         .setClearValue(vk::ClearDepthStencilValue(1.0f, 0))
         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-        .setImageView(depthImages[imageIndex].view)
+        .setImageView(depthImages[0].view)
         .setResolveMode(vk::ResolveModeFlagBits::eNone)
         .setResolveImageLayout(vk::ImageLayout::eUndefined);
     colorAttachment = vk::RenderingAttachmentInfo()
@@ -243,14 +273,13 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
 
     auto beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    graphicsCmdBuffers[currentFrame].begin(beginInfo);
-    computeCmdBuffers[currentFrame].begin(beginInfo);
+    graphCompCmdBuffers[currentFrame].begin(beginInfo);
 
-    graphicsCommand.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone,
+    TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eColorAttachmentWrite);
-    graphicsCommand.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthImages[0].image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite);
-    graphicsCommand.SetDynamicStates(dldid);
+    SetDynamicStates(graphCompCmdBuffers[currentFrame], dldid);
 
     auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
@@ -259,11 +288,11 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setWidth(swapchain.renderExtend.width)
         .setX(0)
         .setY(0);
-    graphicsCmdBuffers[currentFrame].setViewportWithCount(viewport);
+    graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
     auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
         .setOffset({ 0 ,0 });
-    graphicsCmdBuffers[currentFrame].setScissorWithCount(scissor);
+    graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
 
     renderArea = vk::Rect2D()
         .setExtent(swapchain.renderExtend);
@@ -272,56 +301,50 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
     if (!freezeFrustum) {
         auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
         UpdateBuffer(meshBuffer, frustumSpan, stageBuffers[currentFrame]);
+
+        auto barrier = vk::MemoryBarrier2()
+            .setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eCopy)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eCopy)
+            .setDstAccessMask(vk::AccessFlagBits2::eTransferWrite);
+        auto depInfo = vk::DependencyInfo()
+            .setMemoryBarriers(barrier);
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depInfo);
     }
 }
 void Renderer::SubmitImmediate(const std::function<void()>& func) {
-    device.device.resetFences(immediateGraphicsFence);
-    device.device.resetFences(immediateComputeFence);
+    device.device.resetFences(immediateFence);
 
     vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
-    graphicsCmdBuffers[0].begin(beginInfo);
-    graphicsCmdBuffers[1].begin(beginInfo);
-    computeCmdBuffers[0].begin(beginInfo);
-    computeCmdBuffers[1].begin(beginInfo);
+    graphCompCmdBuffers[0].begin(beginInfo);
+    graphCompCmdBuffers[1].begin(beginInfo);
 
     func();
 
-    graphicsCmdBuffers[0].end();
-    graphicsCmdBuffers[1].end();
-    computeCmdBuffers[0].end();
-    computeCmdBuffers[1].end();
+    graphCompCmdBuffers[0].end();
+    graphCompCmdBuffers[1].end();
 
     vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
-        .setCommandBuffers(graphicsCmdBuffers);
-    vk::SubmitInfo computeSubmitInfo = vk::SubmitInfo()
-        .setCommandBuffers(computeCmdBuffers);
-    graphicsQueue.submit(graphicsSubmitInfo, immediateGraphicsFence);
-    computeQueue.submit(computeSubmitInfo, immediateComputeFence);
-    device.device.waitForFences(immediateGraphicsFence, false, UINT64_MAX);
-    device.device.waitForFences(immediateComputeFence, false, UINT64_MAX);
+        .setCommandBuffers(graphCompCmdBuffers);
+    graphicsComputeQueue.submit(graphicsSubmitInfo, immediateFence);
+    device.device.waitForFences(immediateFence, false, UINT64_MAX);
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
-    graphicsCommand.TransitionImage(swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+    TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
-    graphicsCommand.TransitionImage(depthImages[imageIndex].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthImages[0].image, depthSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
-    graphicsCmdBuffers[currentFrame].end();
-    computeCmdBuffers[currentFrame].end();
+    graphCompCmdBuffers[currentFrame].end();
 
     // Submit work.
     vk::PipelineStageFlags graphicsWaitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
-        .setCommandBuffers(graphicsCmdBuffers[currentFrame])
+        .setCommandBuffers(graphCompCmdBuffers[currentFrame])
         .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
         .setSignalSemaphores(renderFinishedSemaphores[imageIndex])
         .setWaitDstStageMask(graphicsWaitStage);
-    graphicsQueue.submit(graphicsSubmitInfo, inFlightGraphicsFences[currentFrame]);
-
-    vk::PipelineStageFlags computeWaitStage = vk::PipelineStageFlagBits::eComputeShader;
-    vk::SubmitInfo computeSubmitInfo = vk::SubmitInfo()
-        .setCommandBuffers(computeCmdBuffers[currentFrame]);
-    computeQueue.submit(computeSubmitInfo, inFlightComputeFences[currentFrame]);
+    graphicsComputeQueue.submit(graphicsSubmitInfo, inFlightFences[currentFrame]);
     
     // Present image.
     vk::PresentInfoKHR info = vk::PresentInfoKHR()
@@ -329,33 +352,28 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        graphicsQueue.presentKHR(info);
+        graphicsComputeQueue.presentKHR(info);
     }
     catch (std::exception e) {
         requestNewSwapchain = true;
     }
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
-        device.device.waitForFences(inFlightGraphicsFences[currentFrame], false, UINT64_MAX);
-        device.device.waitForFences(inFlightComputeFences[currentFrame], false, UINT64_MAX);
-        device.device.resetFences(inFlightGraphicsFences[currentFrame]);
-        device.device.resetFences(inFlightComputeFences[currentFrame]);
+        device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+        device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
-        device.device.resetCommandPool(graphicsCommand.cmdPool);
+        device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
         swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
 
     currentFrame = (currentFrame + 1) % 2;
-    device.device.waitForFences(inFlightGraphicsFences[currentFrame], false, UINT64_MAX);
-    device.device.waitForFences(inFlightComputeFences[currentFrame], false, UINT64_MAX);
-    device.device.resetFences(inFlightGraphicsFences[currentFrame]);
-    device.device.resetFences(inFlightComputeFences[currentFrame]);
+    device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+    device.device.resetFences(inFlightFences[currentFrame]);
     if (!freezeFrustum && !firstTime)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
-    computeCmdBuffers[currentFrame].reset();
-    graphicsCmdBuffers[currentFrame].reset();
+    graphCompCmdBuffers[currentFrame].reset();
     firstTime = false;
 }
 
@@ -376,8 +394,8 @@ void Renderer::InitImGui(SDL_Window* window) {
     imGuiInitInfo.Instance = instance.instance;
     imGuiInitInfo.MinImageCount = swapchain.images.size();
     imGuiInitInfo.PhysicalDevice = device.physicalDevice;
-    imGuiInitInfo.Queue = static_cast<VkQueue>(graphicsQueue);
-    imGuiInitInfo.QueueFamily = device.graphicsQueueFamilyIndex;
+    imGuiInitInfo.Queue = static_cast<VkQueue>(graphicsComputeQueue);
+    imGuiInitInfo.QueueFamily = device.graphicsComputeQueueFamilyIndex;
     imGuiInitInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE + 1;
     imGuiInitInfo.PipelineRenderingCreateInfo = { .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
     imGuiInitInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
@@ -397,6 +415,7 @@ void Renderer::CreatePipeline() {
     forwardPlusShaders  = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardPlusShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     lightCullingShader  = MakeComputeShaderObject(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts);
+    screenTileFrustumsShader = MakeComputeShaderObject(device.device, "shaders/screenTileFrustums.comp.spv", dldid, perspectiveRange, descriptorLayouts);
 
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
@@ -410,12 +429,9 @@ void Renderer::CreateFencesAndSemaphores() {
     imageAquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[1] = device.device.createSemaphore(semaphoreInfo);
     
-    inFlightComputeFences[1]  = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
-    inFlightComputeFences[0]  = device.device.createFence(vk::FenceCreateInfo());
-    inFlightGraphicsFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
-    inFlightGraphicsFences[0] = device.device.createFence(vk::FenceCreateInfo());
-    immediateGraphicsFence    = device.device.createFence(vk::FenceCreateInfo());
-    immediateComputeFence     = device.device.createFence(vk::FenceCreateInfo());
+    inFlightFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
+    inFlightFences[0] = device.device.createFence(vk::FenceCreateInfo());
+    immediateFence    = device.device.createFence(vk::FenceCreateInfo());
 }
 void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     frameTimer = Timer();
@@ -453,16 +469,10 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     for (auto& i : depthImages)
         i = CreateDepthImage();
 
-    graphicsQueue = device.device.getQueue(device.graphicsQueueFamilyIndex, 0);
-    computeQueue  = device.device.getQueue(device.computeQueueFamilyIndex, 0);
+    graphicsComputeQueue = device.device.getQueue(device.graphicsComputeQueueFamilyIndex, 0);
 
-    graphicsCommand = Command(device, device.graphicsQueueFamilyIndex);
-    graphicsCmdBuffers[0] = graphicsCommand.cmdBuffer[0];
-    graphicsCmdBuffers[1] = graphicsCommand.cmdBuffer[1];
-
-    computeCommand  = Command(device, device.computeQueueFamilyIndex);
-    computeCmdBuffers[0] = computeCommand.cmdBuffer[0];
-    computeCmdBuffers[1] = computeCommand.cmdBuffer[1];
+    graphicsComputeCommand = Command(device, device.graphicsComputeQueueFamilyIndex);
+    graphCompCmdBuffers = graphicsComputeCommand.GetCommandBuffers();
 }
 
 // Read 3D model
@@ -798,14 +808,40 @@ GPUBuffer Renderer::UploadData(std::span<T> data) {
     std::function<void()> func = [&]() {
         auto region = vk::BufferCopy()
             .setSize(size);
-        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
+        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
         };
     SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsCommand.cmdPool);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
     vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 
     return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
 }
+template<typename T>
+GPUBuffer Renderer::UploadData(T&& data) {
+    const auto size = sizeof(T);
+
+    auto buffer = CreateBuffer(size, vk::BufferUsageFlagBits::eStorageBuffer |
+        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
+    auto addressInfo = vk::BufferDeviceAddressInfo()
+        .setBuffer(buffer.buffer);
+
+    auto stageBuffer = CreateBuffer(size,
+        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
+    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
+    std::memcpy(byteData, &data, size);
+
+    std::function<void()> func = [&]() {
+        auto region = vk::BufferCopy()
+            .setSize(size);
+        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
+        };
+    SubmitImmediate(func);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
+    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
+
+    return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
+}
+
 template<typename T>
 void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset) {
     const auto size = sizeof(T) * data.size();
@@ -818,7 +854,7 @@ void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffe
         auto region = vk::BufferCopy()
             .setSize(size)
             .setDstOffset(offset);
-        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer.buffer, region);
+        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer.buffer, region);
     };
 
     //SubmitImmediate(func);
@@ -864,11 +900,11 @@ GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
     std::function<void()> func = [&]() {
         auto vertRegion = vk::BufferCopy()
             .setSize(vertSize);
-        graphicsCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer.buffer, vertRegion);
+        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer.buffer, vertRegion);
     };
     SubmitImmediate(func);
 
-    device.device.resetCommandPool(graphicsCommand.cmdPool);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
     vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
 
     return meshbuffer;
@@ -931,7 +967,7 @@ std::array<AllocatedImage, 2> Renderer::CreateDepthStencilImages(vk::Extent2D ex
     //    mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
 
     std::array<uint32_t, 2> queueFamilyIndices = {
-        device.graphicsQueueFamilyIndex,
+        device.graphicsComputeQueueFamilyIndex,
         device.computeQueueFamilyIndex
     };
 
@@ -981,7 +1017,7 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
     auto image = CreateImage(format, extend, usage | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, subresourceRange, makeMipmaps);
     
     std::function<void()> func = [&]() {
-        graphicsCommand.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
+        TransitionImage(graphCompCmdBuffers[currentFrame], image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
             vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eTransferWrite);
 
         auto imageSubresource = vk::ImageSubresourceLayers()
@@ -996,12 +1032,12 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
             .setImageExtent(vk::Extent3D(extend, 1))
             .setImageSubresource(imageSubresource);
 
-        graphicsCommand.cmdBuffer[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
-        graphicsCommand.TransitionImage(image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
+        graphCompCmdBuffers[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
+        TransitionImage(graphCompCmdBuffers[currentFrame], image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
             vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderSampledRead);
     };
     SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsCommand.cmdPool);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
 
     return image;
 }
@@ -1046,30 +1082,17 @@ void Renderer::PushConstant_Draw() {
     sceneInfo.meshCount    = meshViews.size();
     sceneInfo.windowWidth  = (float)swapchain.renderExtend.width;
     sceneInfo.windowHeight = (float)swapchain.renderExtend.height;
-    sceneInfo.tileCountX   = (uint32_t)std::ceil(swapchain.renderExtend.width / 16.0f);
-    sceneInfo.tileCountY   = (uint32_t)std::ceil(swapchain.renderExtend.height / 16.0f);
+    sceneInfo.tileCountX   = (uint32_t)((swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16);
+    sceneInfo.tileCountY   = (uint32_t)((swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16);
 
     PushConstantData pushConstant{
-        vertexTransform,
-        worldTransform,
+        projViewTransform,
+        view,
+        proj,
         glm::vec4(position, 1),
-        sceneInfo,
-
-        meshletsAddress.bufferAddress,
-        meshletVerticesAddress.bufferAddress,
-        meshletTrianglesAddress.bufferAddress,
-        meshletBoundsAddress.bufferAddress,
-
-        meshViewBufferAddress.bufferAddress,
-        meshBuffer.bufferAddress,
-        materialBufferAddress.bufferAddress,
-
-        lightBufferAddress.bufferAddress,
+        sceneInfo
     };
-    graphicsCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-    graphicsCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
-    computeCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
-    computeCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
+    graphCompCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
 }
 void Renderer::ImGui_Draw(double frameTime) {
     ImGui_ImplVulkan_NewFrame();
@@ -1240,6 +1263,16 @@ void Renderer::CreateDescSets_Init() {
         .setBinding(2)
         .setDescriptorType(vk::DescriptorType::eStorageBuffer)
         .setDescriptorCount(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eCompute | vk::ShaderStageFlagBits::eFragment),
+        vk::DescriptorSetLayoutBinding()
+        .setBinding(3)
+        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+        .setDescriptorCount(1)
+        .setStageFlags(vk::ShaderStageFlagBits::eAll),
+        vk::DescriptorSetLayoutBinding()
+        .setBinding(4)
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+        .setDescriptorCount(1)
         .setStageFlags(vk::ShaderStageFlagBits::eCompute)
     };
     std::vector<vk::DescriptorPoolSize> descPoolSizes = {
@@ -1248,6 +1281,12 @@ void Renderer::CreateDescSets_Init() {
         .setDescriptorCount(textures.size()),
         vk::DescriptorPoolSize()
         .setType(vk::DescriptorType::eCombinedImageSampler)
+        .setDescriptorCount(1),
+        vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eStorageBuffer)
+        .setDescriptorCount(1),
+        vk::DescriptorPoolSize()
+        .setType(vk::DescriptorType::eUniformBuffer)
         .setDescriptorCount(1),
         vk::DescriptorPoolSize()
         .setType(vk::DescriptorType::eStorageBuffer)
@@ -1270,9 +1309,27 @@ void Renderer::CreateDescSets_Init() {
     descriptorSets = device.device.allocateDescriptorSets(descAlloc);
     
     // Buffers.
-    const size_t indicesSize = 1024 * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
-    lightIndicesBuffer = CreateBuffer(indicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
+    lightIndicesBuffer  = CreateBuffer(lightIndicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    tileFrustumsSize = sizeof(glm::vec4) * 6 * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
+    tileFrustumBuffer = CreateBuffer(tileFrustumsSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+
+    // Upload buffer addresses.
+    bufferAddresses.meshletsAddress = meshletsAddress.bufferAddress;
+    bufferAddresses.meshletVerticesAddress = meshletVerticesAddress.bufferAddress;
+    bufferAddresses.meshletTrianglesAddress = meshletTrianglesAddress.bufferAddress;
+    bufferAddresses.meshletBoundsAddress = meshletBoundsAddress.bufferAddress;
+
+    bufferAddresses.meshViewBufferAddress = meshViewBufferAddress.bufferAddress;
+    bufferAddresses.vertexBufferAddress = meshBuffer.bufferAddress;
+    bufferAddresses.materialBufferAddress = materialBufferAddress.bufferAddress;
+    bufferAddresses.lightBufferAddress = lightBufferAddress.bufferAddress;
+
+    bufferAddressBuffer.buffer = CreateBuffer(lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    std::vector<BufferAddresses> bufferAddressesVec = { bufferAddresses };
+    std::function<void()> addresses = [&]() { UpdateBuffer<BufferAddresses>(bufferAddressBuffer, bufferAddressesVec, stageBuffers[0]); };
+    SubmitImmediate(addresses);
+
     // Descriptors.
     std::vector<vk::DescriptorImageInfo> imageDescriptors;
     imageDescriptors.reserve(textures.size());
@@ -1290,7 +1347,13 @@ void Renderer::CreateDescSets_Init() {
         .setImageView(depthImages[0].view);
     auto lightIndicesDescriptor = vk::DescriptorBufferInfo()
         .setBuffer(lightIndicesBuffer.buffer)
-        .setRange(indicesSize);
+        .setRange(lightIndicesSize);
+    auto bufferAddressDescriptor = vk::DescriptorBufferInfo()
+        .setBuffer(bufferAddressBuffer.buffer.buffer)
+        .setRange(sizeof(BufferAddresses));
+    auto frustumBufferDescriptor = vk::DescriptorBufferInfo()
+        .setBuffer(tileFrustumBuffer.buffer)
+        .setRange(tileFrustumsSize);
 
     std::vector<vk::WriteDescriptorSet> descWrite = {
         vk::WriteDescriptorSet()
@@ -1310,11 +1373,22 @@ void Renderer::CreateDescSets_Init() {
         .setDstSet(descriptorSets[0])
         .setDstBinding(2)
         .setDescriptorCount(1)
-        .setBufferInfo(lightIndicesDescriptor)
+        .setBufferInfo(lightIndicesDescriptor),
+        vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
+        .setDstSet(descriptorSets[0])
+        .setDstBinding(3)
+        .setDescriptorCount(1)
+        .setBufferInfo(bufferAddressDescriptor),
+        vk::WriteDescriptorSet()
+        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+        .setDstSet(descriptorSets[0])
+        .setDstBinding(4)
+        .setDescriptorCount(1)
+        .setBufferInfo(frustumBufferDescriptor)
     };
     
     std::function<void()> descFunc = [&]() { device.device.updateDescriptorSets(descWrite, nullptr); };
     SubmitImmediate(descFunc);
-    device.device.resetCommandPool(graphicsCommand.cmdPool);
-    device.device.resetCommandPool(computeCommand.cmdPool);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
 }

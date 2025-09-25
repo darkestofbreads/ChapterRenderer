@@ -42,13 +42,7 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(push_constant, std430) uniform constant
-{
-	mat4 projView;
-	mat4 worldTransform;
-	vec4 camPos;
-	SceneInfo sceneInfo;
-
+layout(set = 0, binding = 3) uniform BufferAddresses {
 	MeshletBuffer meshletBuffer;
 	MeshletVertexBuffer meshletVertices;
 	MeshletTriangleBuffer meshletTriangles;
@@ -57,8 +51,16 @@ layout(push_constant, std430) uniform constant
 	MeshViewBuffer meshViewBuffer;
 	VertexBuffer vertexBuffer;
 	MaterialBuffer materialBuffer;
-
 	LightBuffer lightBuffer;
+};
+
+layout(push_constant, std430) uniform constant
+{
+	mat4 projView;
+	mat4 view;
+	mat4 proj;
+	vec4 camPos;
+	SceneInfo sceneInfo;
 };
 
 struct Payload {
@@ -91,9 +93,9 @@ void main()
 	gl_MeshVerticesEXT[0].gl_Position = projView * vec4(a.position, 1.0);
 	gl_MeshVerticesEXT[1].gl_Position = projView * vec4(b.position, 1.0);
 	gl_MeshVerticesEXT[2].gl_Position = projView * vec4(c.position, 1.0);
-	position[0] = (worldTransform * vec4(a.position, 1)).xyz;
-	position[1] = (worldTransform * vec4(b.position, 1)).xyz;
-	position[2] = (worldTransform * vec4(c.position, 1)).xyz;
+	position[0] = (view * vec4(a.position, 1)).xyz;
+	position[1] = (view * vec4(b.position, 1)).xyz;
+	position[2] = (view * vec4(c.position, 1)).xyz;
 
 	gl_PrimitiveTriangleIndicesEXT[0] = uvec3(0, 1, 2);
 	uv[0] = vec2(a.u, a.v);
@@ -104,7 +106,7 @@ void main()
 	materialIndex[1] = payloadIn.materialIndex;
 	materialIndex[2] = payloadIn.materialIndex;
 
-	mat3 normalTransform = mat3(transpose(inverse(worldTransform)));
+	mat3 normalTransform = mat3(transpose(inverse(view)));
 	normal[0] = normalTransform * a.normal;
 	normal[1] = normalTransform * b.normal;
 	normal[2] = normalTransform * c.normal;

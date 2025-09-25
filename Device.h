@@ -13,7 +13,7 @@ public:
 	vk::Device device;
 	vk::PhysicalDevice physicalDevice;
 
-	uint32_t graphicsQueueFamilyIndex;
+	uint32_t graphicsComputeQueueFamilyIndex;
 	uint32_t computeQueueFamilyIndex;
 
 private:
