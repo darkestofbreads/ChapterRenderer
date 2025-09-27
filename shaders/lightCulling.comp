@@ -94,8 +94,8 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
     far.normal = vec3(0, 0, 1);
     far.dist   = zFar;
 
-    //if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
-    //    return false;
+    if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
+        return false;
 
     for(uint i = 0; i < 4; i++) {
         if(ConeInsidePlane(cone, frustum.planes[i]))
