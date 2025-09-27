@@ -74,6 +74,13 @@ struct Sphere {
 	float r;
 };
 
+struct Cone {
+	vec3 tip;
+	float height;
+	vec3 dir;
+	float r;
+};
+
 //enum LIGHTTYPE {
 //	LIGHT_POINT = 0,
 //	LIGHT_SPOT  = 1,

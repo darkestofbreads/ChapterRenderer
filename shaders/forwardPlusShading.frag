@@ -170,6 +170,7 @@ void main() {
 	uint i;
 	for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
 		int lightindex = lightIndices[i + offset];
+
 		if (lightindex == -1) break;
 
 		Light light = lightBuffer.lights[lightindex];
@@ -177,16 +178,24 @@ void main() {
 		fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
 
+	for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
+		int lightindex = lightIndices[i + offset];
+	
+		if (lightindex == -1) break;
+	
+		Light light = lightBuffer.lights[lightindex];
+		light.pos = (view * vec4(light.pos, 1)).xyz;
+		light.lightDir = normalTransform * light.lightDir;
+	
+		fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
+	}
+
 	uint index = 0;
 	uint limit = sceneInfo.pointLightCount;
 	index = sceneInfo.spotLightCount;
-	for (limit += sceneInfo.spotLightCount; index < limit; index++) {
-			Light light = lightBuffer.lights[index];
-			light.pos = (view * vec4(light.pos, 1)).xyz;
-			light.lightDir = normalTransform * light.lightDir;
-			fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
-	}
+	limit += sceneInfo.spotLightCount;
 
+	index += sceneInfo.pointLightCount;
 	for (limit += sceneInfo.dirLightCount; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
 			light.lightDir = normalTransform * light.lightDir;

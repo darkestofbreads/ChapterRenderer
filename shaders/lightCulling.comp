@@ -78,6 +78,31 @@ bool SphereInsideFrustum( Sphere sphere, Frustum frustum, float zNear, float zFa
     return true;
 }
 
+bool PointInsidePlane(vec3 p, Plane plane) {
+    return dot(plane.normal, p) - plane.dist < 0;
+}
+bool ConeInsidePlane(Cone cone, Plane plane) {
+    vec3 m = cross( cross(plane.normal, cone.dir), cone.dir);
+    vec3 q = cone.tip + cone.dir * cone.height - m * cone.r;
+    return PointInsidePlane(cone.tip, plane) && PointInsidePlane(q, plane);
+}
+bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
+    Plane near;
+    near.normal = vec3(0, 0, -1);
+    near.dist   = -zNear;
+    Plane far;
+    far.normal = vec3(0, 0, 1);
+    far.dist   = zFar;
+
+    if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
+        return false;
+
+    for(uint i = 0; i < 4; i++) {
+        if(ConeInsidePlane(cone, frustum.planes[i]))
+            return false;
+    }
+}
+
 vec4 ClipToView(vec4 clip) {
     vec4 view = inverse(proj) * clip;
     view = view / view.w;
@@ -87,7 +112,7 @@ vec4 ClipToView(vec4 clip) {
 shared uint minDepthInt;
 shared uint maxDepthInt;
 shared uint visiblePointLightsCount;
-shared int  visiblePointLights[MAX_VISIBLE_LIGHTS];
+shared uint visibleSpotLightsCount;
 shared Frustum frustum;
 
 void main() {
@@ -99,6 +124,7 @@ void main() {
 	    minDepthInt = 0xffffffff;
 	    maxDepthInt = 0;
 		visiblePointLightsCount = 0;
+        visibleSpotLightsCount  = 0;
         frustum = tileFrustums[index];
     }
 
@@ -128,7 +154,6 @@ void main() {
     // Cull point lights.
 	uint offset = index * MAX_VISIBLE_LIGHTS;
 
-    // Each thread may compute one light, this means that maximum lights per tile is directly tied to tile size.
     if (gl_LocalInvocationIndex < sceneInfo.pointLightCount) {
         Light light = lightBuffer.lights[gl_LocalInvocationIndex];
     
@@ -144,7 +169,38 @@ void main() {
 
     barrier();
 
-    if(gl_LocalInvocationIndex == 0)
+    // Cull spot lights.
+	mat4 normalTransform = transpose(inverse(view));
+    if (gl_LocalInvocationIndex < sceneInfo.spotLightCount) {
+        Light light = lightBuffer.lights[gl_LocalInvocationIndex + sceneInfo.pointLightCount];
+
+        //Cone c;
+        //c.tip = (view * vec4(light.pos, 1)).xyz;
+        //c.dir = (normalTransform * light.lightDir).xyz;
+        //c.height = light.radius;
+        //c.r   = tan(radians(light.cutoff)) * light.radius;
+        //
+        //if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
+		//	uint currentCount = atomicAdd(visibleSpotLightsCount, 1);
+		//	lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(gl_LocalInvocationIndex + sceneInfo.pointLightCount);
+		//}
+        Sphere s;
+        s.pos = (view * vec4(light.pos, 1)).xyz;
+        s.r   = light.radius;
+    
+        if (SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
+			uint currentCount = atomicAdd(visibleSpotLightsCount, 1);
+			lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(gl_LocalInvocationIndex + sceneInfo.pointLightCount);
+        }
+    }
+
+    barrier();
+
+    if(gl_LocalInvocationIndex == 0) {
         if (visiblePointLightsCount < MAX_VISIBLE_LIGHTS)
             lightIndices[offset + visiblePointLightsCount] = -1;
+
+        if (visibleSpotLightsCount < MAX_VISIBLE_LIGHTS)
+            lightIndices[offset + visiblePointLightsCount + 1 + visibleSpotLightsCount] = -1;
+    }
 }
