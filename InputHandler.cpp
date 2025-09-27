@@ -11,7 +11,7 @@ bool InputHandler::PollEvents(SDL_Event& Event, bool& GrabMouse, float& Pitch, f
         case SDL_EVENT_MOUSE_MOTION:
             if (GrabMouse) {
                 float xOffset = Event.motion.xrel * sensitivity;
-                float yOffset = Event.motion.yrel * sensitivity;
+                float yOffset = -Event.motion.yrel * sensitivity;
                 Pitch += yOffset;
                 Yaw = Yaw + xOffset;
                 if (Pitch < -89.0f)

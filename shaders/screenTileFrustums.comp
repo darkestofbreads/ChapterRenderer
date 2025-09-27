@@ -65,7 +65,7 @@ vec4 ClipToView(vec4 clip) {
 }
 vec4 ScreenToView(vec4 screen) {
     vec2 coord = screen.xy / vec2(sceneInfo.width, sceneInfo.height);
-    vec4 clip  = vec4( vec2(coord.x, coord.y) * 2.0 - 1.0, screen.z, screen.w );
+    vec4 clip  = vec4( vec2(coord.x, 1.0 - coord.y) * 2.0 - 1.0, screen.z, screen.w );
     return ClipToView(clip);
 }
 

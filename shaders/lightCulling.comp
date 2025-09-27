@@ -94,13 +94,15 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
     far.normal = vec3(0, 0, 1);
     far.dist   = zFar;
 
-    if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
-        return false;
+    //if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
+    //    return false;
 
     for(uint i = 0; i < 4; i++) {
         if(ConeInsidePlane(cone, frustum.planes[i]))
             return false;
     }
+
+    return true;
 }
 
 vec4 ClipToView(vec4 clip) {
@@ -174,24 +176,16 @@ void main() {
     if (gl_LocalInvocationIndex < sceneInfo.spotLightCount) {
         Light light = lightBuffer.lights[gl_LocalInvocationIndex + sceneInfo.pointLightCount];
 
-        //Cone c;
-        //c.tip = (view * vec4(light.pos, 1)).xyz;
-        //c.dir = (normalTransform * light.lightDir).xyz;
-        //c.height = light.radius;
-        //c.r   = tan(radians(light.cutoff)) * light.radius;
-        //
-        //if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
-		//	uint currentCount = atomicAdd(visibleSpotLightsCount, 1);
-		//	lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(gl_LocalInvocationIndex + sceneInfo.pointLightCount);
-		//}
-        Sphere s;
-        s.pos = (view * vec4(light.pos, 1)).xyz;
-        s.r   = light.radius;
-    
-        if (SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
+        Cone c;
+        c.height = light.radius;
+        c.tip = (view * vec4(light.pos, 1)).xyz;
+        c.dir = normalize((normalTransform * light.lightDir).xyz);
+        c.r   = tan(acos(light.cutoff)) * light.radius;
+
+        if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
 			uint currentCount = atomicAdd(visibleSpotLightsCount, 1);
 			lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(gl_LocalInvocationIndex + sceneInfo.pointLightCount);
-        }
+		}
     }
 
     barrier();

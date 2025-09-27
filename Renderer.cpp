@@ -284,10 +284,10 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
     auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
         .setMaxDepth(1.0f)
-        .setHeight(swapchain.renderExtend.height)
+        .setHeight(-(float)swapchain.renderExtend.height)
         .setWidth(swapchain.renderExtend.width)
         .setX(0)
-        .setY(0);
+        .setY(swapchain.renderExtend.height);
     graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
     auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
@@ -1110,24 +1110,21 @@ void Renderer::LoadModels_Init() {
 
     auto helmetTrans = glm::mat4(1.0f);
     helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
-    helmetTrans = glm::rotate<float>(helmetTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
     
     auto dragonTrans = glm::mat4(1.0f);
-    dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 5.0f, 2.0f));
-    dragonTrans = glm::rotate<float>(dragonTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
+    dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 0, 2.0f));
     dragonTrans = glm::scale(dragonTrans, glm::vec3(0.1f));
     LoadGLTF("assets/stanford_dragon.glb", dragonTrans);
     
     auto toyTrans = glm::mat4(1.0f);
     toyTrans = glm::translate(toyTrans, glm::vec3(-3.0f, 0, 0));
-    toyTrans = glm::rotate<float>(toyTrans, glm::radians(90.0f), glm::vec3(-1, 0, 0));
+    toyTrans = glm::rotate<float>(toyTrans, glm::radians(-90.0f), glm::vec3(-1, 0, 0));
     toyTrans = glm::scale(toyTrans, glm::vec3(0.005f));
     LoadGLTF("assets/ToyCar.glb", toyTrans);
     
     auto monkeTrans = glm::mat4(1.0f);
     monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
-    monkeTrans = glm::rotate(monkeTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
     LoadGLTF("assets/monke.glb", monkeTrans);
 
     //Many sponzas for benchmarking.
@@ -1136,7 +1133,6 @@ void Renderer::LoadModels_Init() {
             for (size_t k = 0; k < /*3*/1; k++) {
                 auto sponzaTrans = glm::mat4(1.0f);
                 sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
-                sponzaTrans = glm::rotate<float>(sponzaTrans, glm::radians(180.0f), glm::vec3(-1, 0, 0));
                 sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
                 LoadGLTF("assets/sponza.glb", sponzaTrans);
             }
