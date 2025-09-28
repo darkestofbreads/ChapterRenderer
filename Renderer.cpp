@@ -141,9 +141,16 @@ void Renderer::Draw() {
     renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     if (doLightCulling) {
-        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
-        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        if (!showLightHeatmap) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        }
+        else {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        }
     }
     else {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
@@ -413,6 +420,7 @@ void Renderer::CreatePipeline() {
 
     forwardShaders      = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardPlusShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    lightHeatmapShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/lightHeatmap.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     lightCullingShader  = MakeComputeShaderObject(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObject(device.device, "shaders/screenTileFrustums.comp.spv", dldid, perspectiveRange, descriptorLayouts);
@@ -1104,6 +1112,8 @@ void Renderer::ImGui_Draw(double frameTime) {
     requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
     ImGui::Checkbox("Freeze frustum", &freezeFrustum);
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
+    if (doLightCulling)
+        ImGui::Checkbox("   Show light heatmap", &showLightHeatmap);
 }
 void Renderer::LoadModels_Init() {
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);

@@ -6,7 +6,7 @@ file(GLOB SOURCES *.cpp imgui/*.cpp *.hpp)
 find_package(Vulkan REQUIRED)
 
 # GLSL to SPIR-V
-file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task shaders/*.comp)
+file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task shaders/*.comp shaders/debug/*.frag)
 set(SPIRV_VERSION "1.4")
 foreach(SHADER ${SHADERS})
     get_filename_component(FILENAME ${SHADER} NAME)

@@ -173,6 +173,7 @@ private:
 	bool firstTime = true;
 	bool doLightCulling = true;
 	bool drawUI = true;
+	bool showLightHeatmap = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -285,6 +286,7 @@ private:
 
 	std::vector<vk::ShaderEXT> forwardShaders;
 	std::vector<vk::ShaderEXT> forwardPlusShaders;
+	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	vk::ShaderEXT lightCullingShader;
 	vk::ShaderEXT screenTileFrustumsShader;
