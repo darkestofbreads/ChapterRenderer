@@ -18,6 +18,7 @@
 #define GLM_FORCE_SWIZZLE
 
 #include <vulkan/vulkan.hpp>
+
 #include <vma/vk_mem_alloc.h>
 
 #include <glm/glm.hpp>
@@ -35,7 +36,6 @@
 
 constexpr uint32_t TILE_SIZE = 16;
 constexpr uint32_t MAX_LIGHTS_PER_TILE = 128;
-// Don't change from 2 unless you have good reasons to.
 
 struct Vertex {
 	glm::vec3 Position;

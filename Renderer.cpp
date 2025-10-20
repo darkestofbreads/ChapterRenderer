@@ -44,7 +44,7 @@ void Renderer::Draw() {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
-
+        
         const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
@@ -52,10 +52,10 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(tileFrustumBuffer.buffer)
             .setSize(tileFrustumsSize);
-
+        
         const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
             .setBufferMemoryBarriers(tileFrustumsBarrier);
-
+        
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
     }
 
@@ -423,7 +423,7 @@ void Renderer::CreatePipeline() {
     lightHeatmapShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/lightHeatmap.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     lightCullingShader  = MakeComputeShaderObject(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts);
-    screenTileFrustumsShader = MakeComputeShaderObject(device.device, "shaders/screenTileFrustums.comp.spv", dldid, perspectiveRange, descriptorLayouts);
+    screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
 
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
