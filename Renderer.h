@@ -5,7 +5,7 @@
 #include "Instance.h"
 #include "Command.h"
 #include "Timer.h"
-#include "GPUBuffer.hpp"
+#include "Uploader.h"
 
 #include "stb_image.h"
 
@@ -57,6 +57,7 @@ struct MaterialIndexGroup {
 	uint32_t diffuse;
 	uint32_t metallicRoughness;
 	uint32_t emissive;
+	uint32_t pad;
 };
 
 struct Light {
@@ -130,11 +131,26 @@ struct BufferAddresses {
 };
 // Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
-	glm::mat4 projView;
-	glm::mat4 view;
-	glm::mat4 proj;
-	glm::vec4 camPos;
-	SceneInfo sceneInfo;
+	vk::DeviceAddress projView;
+	vk::DeviceAddress view;
+
+	vk::DeviceAddress invProj;
+	vk::DeviceAddress invView;
+
+	vk::DeviceAddress camPos;
+	vk::DeviceAddress sceneInfo;
+
+	vk::DeviceAddress vertexBufferAddress;
+	vk::DeviceAddress meshletsAddress;
+
+	vk::DeviceAddress meshletVerticesAddress;
+	vk::DeviceAddress meshletTrianglesAddress;
+
+	vk::DeviceAddress meshletBoundsAddress;
+	vk::DeviceAddress meshViewBufferAddress;
+
+	vk::DeviceAddress materialBufferAddress;
+	vk::DeviceAddress lightBufferAddress;
 };
 struct Chunk {
 	uint32_t blocks[32][32];
@@ -214,11 +230,11 @@ private:
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
-	GPUBuffer meshBuffer;
-	AllocatedBuffer CreateBuffer(size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage);
+	GPUBuffer vertexBuffer;
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator;
 
+	GPUBuffer CreateEmptyBuffer(size_t size);
 	template<typename T>
 	GPUBuffer UploadData(std::span<T> data);
 	template<typename T>
@@ -236,6 +252,13 @@ private:
 	GPUBuffer materialBufferAddress;
 	GPUBuffer lightBufferAddress;
 
+	GPUBuffer projViewAddress;
+	GPUBuffer viewAddress;
+	GPUBuffer invProjAddress;
+	GPUBuffer invViewAddress;
+	GPUBuffer camPosAddress;
+	GPUBuffer sceneInfoAddress;
+
 	glm::mat4 projViewTransform;
 	glm::mat4 view;
 	glm::mat4 proj;
@@ -247,7 +270,7 @@ private:
 	Device device;
 	Swapchain swapchain;
 	std::array<AllocatedImage, IMAGE_COUNT> depthImages;
-	vk::ImageSubresourceRange depthSubresourceRange;
+	vk::ImageSubresourceRange depthStencilSubresourceRange;
 	vk::ImageSubresourceRange stencilSubresourceRange;
 	std::array<AllocatedImage, 2> CreateDepthStencilImages(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
 

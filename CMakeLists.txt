@@ -5,7 +5,13 @@ project (ChapterOne)
 file(GLOB SOURCES *.cpp imgui/*.cpp *.hpp)
 
 find_package(Vulkan REQUIRED)
-find_package(Slang REQUIRED PATHS extern/slang/windows)
+
+
+set(SLANG_DIR ${CMAKE_SOURCE_DIR}/extern/slang-2025.22.1-windows-x86_64)
+find_package(slang REQUIRED PATHS ${SLANG_DIR})
+
+# Manually copy slang-compiler.dll
+configure_file(${SLANG_DIR}/bin/slang-compiler.dll ${CMAKE_BINARY_DIR}/slang-compiler.dll COPYONLY)
 
 # GLSL to SPIR-V
 file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task shaders/*.comp shaders/debug/*.frag)
@@ -36,7 +42,7 @@ add_custom_target(CopyShaders
 )
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/shaders/compiled)
 
-add_executable(ChapterOne ${SOURCES} "shaders/common.h" "shaders/common.slang" "GPUBuffer.hpp" "Shader.cpp")
+add_executable(ChapterOne ${SOURCES} "shaders/common.h" "shaders/common.slang")
 add_dependencies(ChapterOne CopyAssets)
 add_dependencies(ChapterOne CopyShaders)
 

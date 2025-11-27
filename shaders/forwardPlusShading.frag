@@ -7,11 +7,6 @@
 
 #include "common.h"
 
-layout(location = 1) in vec2 uv;
-layout(location = 2) flat in uint materialIndex;
-layout(location = 3) in vec3 pos;
-layout(location = 4) in vec3 normal;
-
 layout(set = 0, binding = 0) uniform sampler2D Textures[];
 layout(set = 0, binding = 1) uniform sampler2D Depth;
 layout(set = 0, binding = 2) readonly buffer LightIndices {
@@ -43,25 +38,47 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(set = 0, binding = 3) uniform BufferAddresses {
-	MeshletBuffer meshletBuffer;
-	MeshletVertexBuffer meshletVertices;
-	MeshletTriangleBuffer meshletTriangles;
-	MeshletBoundBuffer meshletBounds;
 
-	MeshViewBuffer meshViewBuffer;
-	VertexBuffer vertexBuffer;
-	MaterialBuffer materialBuffer;
-	LightBuffer lightBuffer;
+layout(buffer_reference, std430) readonly buffer ProjViewBuffer{
+	mat4 projView;
+};
+layout(buffer_reference, std430) readonly buffer ViewBuffer{
+	mat4 view;
+};
+layout(buffer_reference, std430) readonly buffer InvProjBuffer{
+	mat4 invProj;
+};
+layout(buffer_reference, std430) readonly buffer CamPosBuffer{
+	vec4 camPos;
+};
+
+layout(buffer_reference, std430) readonly buffer SceneInfoBuffer{
+	SceneInfo sceneInfo;
 };
 
 layout(push_constant, std430) uniform constant
 {
-	mat4 projView;
-	mat4 view;
-	mat4 proj;
-	vec4 camPos;
-	SceneInfo sceneInfo;
+	ProjViewBuffer projView;
+	ViewBuffer view;
+
+	InvProjBuffer invProj;
+	CamPosBuffer camPos;
+
+	SceneInfoBuffer sceneInfo;
+	MeshletBuffer meshletBuffer;
+
+	MeshletVertexBuffer meshletVertices;
+	MeshletTriangleBuffer meshletTriangles;
+
+	MeshletBoundBuffer meshletBounds;
+	MeshViewBuffer meshViewBuffer;
+
+	VertexBuffer vertexBuffer;
+	MaterialBuffer materialBuffer;
+
+	LightBuffer lightBuffer;
+	float fillA;
+	float fillB;
 };
 
 vec3 CalcPointLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
@@ -150,63 +167,65 @@ vec3 CalcSpotLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughn
 	return (kdiffuse * albedo / PI + specular) * radiance * coverage * intensity;
 }
 
-layout(location = 5) in vec4 meshletColor;
-
 layout(location = 0) out vec4 outColor;
+layout(location = 0) in vec4 meshletColor;
+
 void main() {
-	Material mat = materialBuffer.materials[materialIndex];
-
-	vec3 fragment		   = vec3(0);
-	vec3 N				   = normalize(normal);
-	vec4 difFrag           = texture(Textures[mat.diffuse], uv);
-	vec4 metallicRoughness = texture(Textures[mat.metallicRoughness], uv);
-	
-	mat4 normalTransform = transpose(inverse(view));
-	
-	ivec2 tileID   = ivec2(gl_FragCoord.xy / TILE_SIZE);
-	uint tileIndex = tileID.y * sceneInfo.tileCountX + tileID.x;
-
-	uint offset = tileIndex * MAX_VISIBLE_LIGHTS;
-	uint i;
-	for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
-		int lightindex = lightIndices[i + offset];
-
-		if (lightindex == -1) break;
-
-		Light light = lightBuffer.lights[lightindex];
-		light.pos = (view * vec4(light.pos, 1)).xyz;
-		fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
-	}
-
-	for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
-		int lightindex = lightIndices[i + offset];
-	
-		if (lightindex == -1) break;
-	
-		Light light = lightBuffer.lights[lightindex];
-		light.pos = (view * vec4(light.pos, 1)).xyz;
-		light.lightDir = normalTransform * light.lightDir;
-	
-		fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
-	}
-
-	uint index = 0;
-	uint limit = sceneInfo.pointLightCount;
-	index = sceneInfo.spotLightCount;
-	limit += sceneInfo.spotLightCount;
-
-	index += sceneInfo.pointLightCount;
-	for (limit += sceneInfo.dirLightCount; index < limit; index++) {
-			Light light = lightBuffer.lights[index];
-			light.lightDir = normalTransform * light.lightDir;
-			fragment += CalcDirLight(light, pos, N, difFrag.xyz, metallicRoughness);
-	}
-
-	// Gamma correction.
-	fragment = fragment / (fragment + vec3(1.0));
-	fragment = pow(fragment, vec3(1.0/2.2));
-	
-	// Add emissive to final pixel.
-	vec4 emissiveFrag = texture(Textures[mat.emmisive], uv);
-	outColor          = mix(vec4(fragment, 1), emissiveFrag, dot(emissiveFrag.xyz, vec3(1.0)));
+	outColor = meshletColor;
+	return;
+	//Material mat = materialBuffer.materials[materialIndex];
+	//
+	//vec3 fragment		   = vec3(0);
+	//vec3 N				   = normalize(normal);
+	//vec4 difFrag           = texture(Textures[mat.diffuse], uv);
+	//vec4 metallicRoughness = texture(Textures[mat.metallicRoughness], uv);
+	//
+	//mat4 normalTransform = transpose(inverse(view));
+	//
+	//ivec2 tileID   = ivec2(gl_FragCoord.xy / TILE_SIZE);
+	//uint tileIndex = tileID.y * sceneInfo.tileCountX + tileID.x;
+	//
+	//uint offset = tileIndex * MAX_VISIBLE_LIGHTS;
+	//uint i;
+	//for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
+	//	int lightindex = lightIndices[i + offset];
+	//
+	//	if (lightindex == -1) break;
+	//
+	//	Light light = lightBuffer.lights[lightindex];
+	//	light.pos = (view * vec4(light.pos, 1)).xyz;
+	//	fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
+	//}
+	//
+	//for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
+	//	int lightindex = lightIndices[i + offset];
+	//
+	//	if (lightindex == -1) break;
+	//
+	//	Light light = lightBuffer.lights[lightindex];
+	//	light.pos = (view * vec4(light.pos, 1)).xyz;
+	//	light.lightDir = normalTransform * light.lightDir;
+	//
+	//	fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
+	//}
+	//
+	//uint index = 0;
+	//uint limit = sceneInfo.pointLightCount;
+	//index = sceneInfo.spotLightCount;
+	//limit += sceneInfo.spotLightCount;
+	//
+	//index += sceneInfo.pointLightCount;
+	//for (limit += sceneInfo.dirLightCount; index < limit; index++) {
+	//		Light light = lightBuffer.lights[index];
+	//		light.lightDir = normalTransform * light.lightDir;
+	//		fragment += CalcDirLight(light, pos, N, difFrag.xyz, metallicRoughness);
+	//}
+	//
+	//// Gamma correction.
+	//fragment = fragment / (fragment + vec3(1.0));
+	//fragment = pow(fragment, vec3(1.0/2.2));
+	//
+	//// Add emissive to final pixel.
+	//vec4 emissiveFrag = texture(Textures[mat.emmisive], uv);
+	//outColor          = mix(vec4(fragment, 1), emissiveFrag, dot(emissiveFrag.xyz, vec3(1.0)));
 }

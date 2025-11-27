@@ -43,25 +43,46 @@ layout(buffer_reference, std430) readonly buffer LightBuffer{
 layout(buffer_reference, std430) readonly buffer MeshViewBuffer{
 	MeshView meshViews[];
 };
-layout(set = 0, binding = 3) uniform BufferAddresses {
-	MeshletBuffer meshletBuffer;
-	MeshletVertexBuffer meshletVertices;
-	MeshletTriangleBuffer meshletTriangles;
-	MeshletBoundBuffer meshletBounds;
 
-	MeshViewBuffer meshViewBuffer;
-	VertexBuffer vertexBuffer;
-	MaterialBuffer materialBuffer;
-	LightBuffer lightBuffer;
+layout(buffer_reference, std430) readonly buffer ProjViewBuffer{
+	mat4 projView;
+};
+layout(buffer_reference, std430) readonly buffer ViewBuffer{
+	mat4 view;
+};
+layout(buffer_reference, std430) readonly buffer InvProjBuffer{
+	mat4 invProj;
+};
+layout(buffer_reference, std430) readonly buffer CamPosBuffer{
+	vec4 camPos;
+};
+layout(buffer_reference, std430) readonly buffer SceneInfoBuffer{
+	SceneInfo sceneInfo;
 };
 
 layout(push_constant, std430) uniform constant
 {
-	mat4 projView;
-	mat4 view;
-	mat4 proj;
-	vec4 camPos;
-	SceneInfo sceneInfo;
+	ProjViewBuffer projView;
+	ViewBuffer view;
+
+	InvProjBuffer invProj;
+	CamPosBuffer camPos;
+
+	SceneInfoBuffer sceneInfo;
+	MeshletBuffer meshletBuffer;
+
+	MeshletVertexBuffer meshletVertices;
+	MeshletTriangleBuffer meshletTriangles;
+
+	MeshletBoundBuffer meshletBounds;
+	MeshViewBuffer meshViewBuffer;
+
+	VertexBuffer vertexBuffer;
+	MaterialBuffer materialBuffer;
+
+	LightBuffer lightBuffer;
+	float fillA;
+	float fillB;
 };
 
 vec3 CalcPointLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughness) {
@@ -153,6 +174,7 @@ vec3 CalcSpotLight(Light light, vec3 V, vec3 N, vec3 albedo, vec4 metallicRoughn
 layout(location = 5) in vec4 meshletColor;
 
 layout(location = 0) out vec4 outColor;
+
 void main() {
 	Material mat = materialBuffer.materials[materialIndex];
 	
@@ -161,25 +183,25 @@ void main() {
 	vec4 difFrag = texture(Textures[mat.diffuse], uv);
 	vec4 metallicRoughness = texture(Textures[mat.metallicRoughness], uv);
 
-	mat4 normalTransform = transpose(inverse(view));
+	mat4 normalTransform = transpose(inverse(view.view));
 
 	// Possibly move updates of light positions and normals to a compute shader.
 	uint index = 0;
-	uint limit = sceneInfo.pointLightCount;
+	uint limit = sceneInfo.sceneInfo.pointLightCount;
 	for (; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
-			light.pos = (view * vec4(light.pos, 1)).xyz;
+			light.pos = (view.view * vec4(light.pos, 1)).xyz;
 			fragment += CalcPointLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
 	
-	for (limit += sceneInfo.spotLightCount; index < limit; index++) {
+	for (limit += sceneInfo.sceneInfo.spotLightCount; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
-			light.pos = (view * vec4(light.pos, 1)).xyz;
+			light.pos = (view.view * vec4(light.pos, 1)).xyz;
 			light.lightDir = normalTransform * light.lightDir;
 			fragment += CalcSpotLight(light, pos, N, difFrag.xyz, metallicRoughness);
 	}
 
-	for (limit += sceneInfo.dirLightCount; index < limit; index++) {
+	for (limit += sceneInfo.sceneInfo.dirLightCount; index < limit; index++) {
 			Light light = lightBuffer.lights[index];
 			light.lightDir = normalTransform * light.lightDir;
 			fragment += CalcDirLight(light, pos, N, difFrag.xyz, metallicRoughness);

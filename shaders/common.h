@@ -50,6 +50,7 @@ struct Material {
 	uint diffuse;
 	uint metallicRoughness;
 	uint emmisive;
+	uint pad;
 };
 
 struct Plane
@@ -63,9 +64,9 @@ struct Frustum {
 };
 
 struct Vertex {
-	vec3  position;
+	vec3 position;
 	float u;
-	vec3  normal;
+	vec3 normal;
 	float v;
 };
 

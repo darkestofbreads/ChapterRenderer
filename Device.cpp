@@ -79,7 +79,7 @@ Device::Device(vk::Instance& instance) {
         .setPushDescriptor(vk::True)
         .setDynamicRenderingLocalRead(vk::True)
         .setPNext(&meshShaderFeatures);
-
+    
     // Query queues and create infos.
     auto queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
     graphicsComputeQueueFamilyIndex = 0;

@@ -48,7 +48,7 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 view;
-	mat4 proj;
+	mat4 invProj;
 	vec4 camPos;
 	SceneInfo sceneInfo;
 };

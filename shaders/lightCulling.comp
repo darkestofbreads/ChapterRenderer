@@ -58,7 +58,7 @@ layout(push_constant, std430) uniform constant
 {
 	mat4 projView;
 	mat4 view;
-	mat4 proj;
+	mat4 invProj;
 	vec4 camPos;
 	SceneInfo sceneInfo;
 };
@@ -106,7 +106,7 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
 }
 
 vec4 ClipToView(vec4 clip) {
-    vec4 view = inverse(proj) * clip;
+    vec4 view = invProj * clip;
     view = view / view.w;
     return view;
 }
