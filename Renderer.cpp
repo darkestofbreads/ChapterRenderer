@@ -129,16 +129,15 @@ void Renderer::Draw() {
     // Forward shading and specular.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     if (doLightCulling) {
-    //    if (!showLightHeatmap) {
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+
+         if (showLightHeatmap) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-    //    }
-    //    else {
-    //        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
-    //        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-    //        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-    //    }
+        }
     }
     else {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
@@ -394,11 +393,9 @@ void Renderer::CreatePipeline() {
         .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute);
 
     forwardShaders     = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
-    //forwardPlusShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardPlusShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
-    //lightHeatmapShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/lightHeatmap.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
-    //lightCullingShader = MakeSingleShaderObj(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts, vk::ShaderStageFlagBits::eCompute);
     lightCullingShader  = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
 

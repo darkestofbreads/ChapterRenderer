@@ -6,26 +6,11 @@ file(GLOB SOURCES *.cpp imgui/*.cpp *.hpp)
 
 find_package(Vulkan REQUIRED)
 
-
 set(SLANG_DIR ${CMAKE_SOURCE_DIR}/extern/slang-2025.22.1-windows-x86_64)
 find_package(slang REQUIRED PATHS ${SLANG_DIR})
 
 # Manually copy slang-compiler.dll
 configure_file(${SLANG_DIR}/bin/slang-compiler.dll ${CMAKE_BINARY_DIR}/slang-compiler.dll COPYONLY)
-
-# GLSL to SPIR-V
-file(GLOB SHADERS shaders/*.frag shaders/*.mesh shaders/*.task shaders/*.comp shaders/debug/*.frag)
-set(SPIRV_VERSION "1.4")
-foreach(SHADER ${SHADERS})
-    get_filename_component(FILENAME ${SHADER} NAME)
-    add_custom_command(
-        OUTPUT  ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} ${SHADER} -o ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv --target-spv=spv${SPIRV_VERSION}
-        DEPENDS ${SHADER}
-    )
-    list(APPEND SPIRV_BINARY_FILES ${CMAKE_BINARY_DIR}/shaders/${FILENAME}.spv)
-endforeach()
-add_custom_target(Shaders ALL DEPENDS ${SPIRV_BINARY_FILES})
 
 # Copy assets to build.
 set(ASSETS_DIR ${CMAKE_SOURCE_DIR}/assets)
@@ -42,7 +27,7 @@ add_custom_target(CopyShaders
 )
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/shaders/compiled)
 
-add_executable(ChapterOne ${SOURCES} "shaders/common.h" "shaders/common.slang")
+add_executable(ChapterOne ${SOURCES})
 add_dependencies(ChapterOne CopyAssets)
 add_dependencies(ChapterOne CopyShaders)
 

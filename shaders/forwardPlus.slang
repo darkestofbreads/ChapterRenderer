@@ -138,15 +138,6 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
         fragment += CalcSpotLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }
 
-    //var index = 0U;
-    //var limit = 0U;
-    //
-    //for (limit += pc.sceneInfo.pointLightCount; index < limit; index++) {
-    //    var light = pc.lights[index];
-    //    light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
-    //    fragment += CalcPointLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
-    //}
-
     var index = 0U;
     var limit = pc.sceneInfo.pointLightCount;
     index = pc.sceneInfo.spotLightCount;
