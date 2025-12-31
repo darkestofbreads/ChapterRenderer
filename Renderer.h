@@ -200,7 +200,6 @@ private:
 	GPUBuffer UploadMesh(std::span<Vertex> vertices);
 	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
 
-	AllocatedImage CreateDepthImage();
 	AllocatedImage CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps = false);
 	AllocatedImage CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
 	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource);
@@ -269,10 +268,13 @@ private:
 
 	Device device;
 	Swapchain swapchain;
-	std::array<AllocatedImage, IMAGE_COUNT> depthImages;
-	vk::ImageSubresourceRange depthStencilSubresourceRange;
+	vk::Image depthStencilImage;
+	vk::ImageView depthImageView;
+	vk::ImageView stencilImageView;
+	vk::ImageSubresourceRange depthSubresourceRange;
 	vk::ImageSubresourceRange stencilSubresourceRange;
-	std::array<AllocatedImage, 2> CreateDepthStencilImages(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
+	vk::ImageSubresourceRange depthStencilSubresourceRange;
+	void CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
 
 	Instance instance;
 	Timer frameTimer;

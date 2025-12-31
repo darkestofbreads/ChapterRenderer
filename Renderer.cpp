@@ -65,7 +65,7 @@ void Renderer::Draw() {
     graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
-    vk::RenderingInfo renderInfo(vk::RenderingFlagBits::eSuspending, renderArea, 1, 0, colorAttachment, &depthAttachment);
+    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     
     // Depth prepass.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
@@ -78,11 +78,12 @@ void Renderer::Draw() {
         graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
     }
     graphCompCmdBuffers[currentFrame].endRendering();
-    
+    renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
+
     // Light culling.
-    if (false) {
+    if (doLightCulling) {
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
-    
+
         const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
             .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -90,26 +91,12 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
             .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
             .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-            .setImage(depthImages[0].image)
+            .setImage(depthStencilImage)
             .setSubresourceRange(depthStencilSubresourceRange);
         const auto depthToComputeDependencyInfo = vk::DependencyInfo()
             .setImageMemoryBarriers(depthToComputeBarrier);
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
-    
-        // Bind depth buffer.
-        auto depthDescriptor = vk::DescriptorImageInfo()
-            .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eReadOnlyOptimal)
-            .setImageView(depthImages[0].view);
-    
-        auto descWrite = vk::WriteDescriptorSet()
-            .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-            .setDstSet(descriptorSets[0])
-            .setDstBinding(1)
-            .setDescriptorCount(1)
-            .setImageInfo(depthDescriptor);
-        device.device.updateDescriptorSets(descWrite, nullptr);
-    
+
         uint32_t lightCullX = (swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16;
         uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
@@ -130,7 +117,7 @@ void Renderer::Draw() {
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderRead)
             .setOldLayout(vk::ImageLayout::eReadOnlyOptimal)
             .setNewLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImage(depthImages[0].image)
+            .setImage(depthStencilImage)
             .setSubresourceRange(depthStencilSubresourceRange);
     
         const auto lightCullingDependencyInfo = vk::DependencyInfo()
@@ -140,25 +127,24 @@ void Renderer::Draw() {
     }
 
     // Forward shading and specular.
-    renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
-    //if (doLightCulling) {
+    if (doLightCulling) {
     //    if (!showLightHeatmap) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     //    }
     //    else {
-    //        //graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+    //        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
     //        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
     //        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     //    }
-    //}
-    //else {
-    //    //graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
-    //    graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-    //    graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-    //}
+    }
+    else {
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+    }
     
     if (drawUI) {
         ImGui::Render();
@@ -269,7 +255,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setStoreOp(vk::AttachmentStoreOp::eStore)
         .setClearValue(vk::ClearDepthStencilValue(1.0f, 0))
         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-        .setImageView(depthImages[0].view)
+        .setImageView(depthImageView)
         .setResolveMode(vk::ResolveModeFlagBits::eNone)
         .setResolveImageLayout(vk::ImageLayout::eUndefined);
     colorAttachment = vk::RenderingAttachmentInfo()
@@ -286,7 +272,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
 
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eColorAttachmentWrite);
-    TransitionImage(graphCompCmdBuffers[currentFrame], depthImages[0].image, depthStencilSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthStencilImage, depthStencilSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite);
     SetDynamicStates(graphCompCmdBuffers[currentFrame], dldid);
 
@@ -329,7 +315,7 @@ void Renderer::SubmitImmediate(const std::function<void()>& func) {
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
-    TransitionImage(graphCompCmdBuffers[currentFrame], depthImages[0].image, depthStencilSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthStencilImage, depthStencilSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
     graphCompCmdBuffers[currentFrame].end();
 
@@ -407,11 +393,10 @@ void Renderer::CreatePipeline() {
         .setSize(sizeof(PushConstantData))
         .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute);
 
-    //forwardShaders     = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
+    forwardShaders     = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
     //forwardPlusShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/forwardPlusShading.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
     //lightHeatmapShaders = MakeTaskMeshShaderObjects(device.device, "shaders/triangle.task.spv", "shaders/triangle.mesh.spv", "shaders/lightHeatmap.frag.spv", dldid, perspectiveRange, descriptorLayouts);
-    //depthprepassShaders = MakeTaskMeshShaderObjects(device.device, "shaders/depthprepass.task.spv", "shaders/depthprepass.mesh.spv", "shaders/depthprepass.frag.spv", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
     //lightCullingShader = MakeSingleShaderObj(device.device, "shaders/lightCulling.comp.spv", dldid, perspectiveRange, descriptorLayouts, vk::ShaderStageFlagBits::eCompute);
     lightCullingShader  = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
@@ -458,6 +443,12 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
         .setBaseArrayLayer(0)
         .setLayerCount(1)
         .setLevelCount(1);
+    depthSubresourceRange = vk::ImageSubresourceRange()
+        .setAspectMask(vk::ImageAspectFlagBits::eDepth)
+        .setBaseMipLevel(0)
+        .setBaseArrayLayer(0)
+        .setLayerCount(1)
+        .setLevelCount(1);
     stencilSubresourceRange = vk::ImageSubresourceRange()
         .setAspectMask(vk::ImageAspectFlagBits::eStencil)
         .setBaseMipLevel(0)
@@ -466,8 +457,7 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
         .setLevelCount(1);
 
     swapchain = Swapchain(&device.device, device.physicalDevice, instance.surface);
-    for (auto& i : depthImages)
-        i = CreateDepthImage();
+    CreateDepthStencilImage(swapchain.renderExtend, depthSubresourceRange, stencilSubresourceRange);
 
     graphicsComputeQueue = device.device.getQueue(device.graphicsComputeQueueFamilyIndex, 0);
 
@@ -911,10 +901,6 @@ GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
     return meshbuffer;
 }
 
-AllocatedImage Renderer::CreateDepthImage() {
-    auto depthStencilImage = CreateDepthStencilImages(swapchain.renderExtend, depthStencilSubresourceRange, stencilSubresourceRange);
-    return depthStencilImage[0];
-}
 AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps) {
     uint32_t mipLevelCount = 1;
     if (makeMipmaps)
@@ -947,7 +933,7 @@ AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk:
     
     return {image, imageView, alloc};
 }
-std::array<AllocatedImage, 2> Renderer::CreateDepthStencilImages(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
+void Renderer::CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
     // Get supported depth format.
     std::array<vk::Format, 2> depthFormats = {
         //vk::Format::eD32Sfloat,
@@ -990,17 +976,11 @@ std::array<AllocatedImage, 2> Renderer::CreateDepthStencilImages(vk::Extent2D ex
     imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     imageAllocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    vk::Image image;
     VmaAllocation alloc;
-    auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&image), &alloc, nullptr);
+    auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&depthStencilImage), &alloc, nullptr);
 
-    vk::ImageView depthImageView, stencilImageView;
-    depthImageView = CreateImageView(image, depthStencilFormat, depthSubresource);
-    stencilImageView = CreateImageView(image, depthStencilFormat, stencilSubresource);
-
-    AllocatedImage depthImage = { image, depthImageView, alloc };
-    AllocatedImage stencilImage = { image, stencilImageView, alloc };
-    return { depthImage, stencilImage };
+    depthImageView = CreateImageView(depthStencilImage, depthStencilFormat, depthSubresource);
+    stencilImageView = CreateImageView(depthStencilImage, depthStencilFormat, stencilSubresource);
 }
 AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps) {
 
@@ -1371,7 +1351,7 @@ void Renderer::CreateDescSets_Init() {
     for (size_t i = 0; i < textures.size(); i++) {
         auto imageDescriptor = vk::DescriptorImageInfo()
             .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setImageLayout(vk::ImageLayout::eGeneral)
             .setImageView(textures[i].view);
     
         imageDescriptors.emplace_back(imageDescriptor);
@@ -1379,7 +1359,7 @@ void Renderer::CreateDescSets_Init() {
     auto depthDescriptor = vk::DescriptorImageInfo()
         .setSampler(nearestSampler)
         .setImageLayout(vk::ImageLayout::eDepthReadOnlyOptimal)
-        .setImageView(depthImages[0].view);
+        .setImageView(depthImageView);
     auto lightIndicesDescriptor = vk::DescriptorBufferInfo()
         .setBuffer(lightIndicesBuffer.buffer)
         .setRange(lightIndicesSize);

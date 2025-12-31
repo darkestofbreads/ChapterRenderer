@@ -111,50 +111,25 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
     let normalTransform = transpose(*pc.invView);
     let metallicRoughness = textures[material.metallicRoughness].Sample(input.uv);
 
-    let tileID = int2(input.screenPos.xy / TILE_SIZE);
-    let tileIndex = tileID.y * pc.sceneInfo.tileCountX + tileID.x;
+    uint i = 0;
+    uint limit = 0;
 
-    uint offset = tileIndex * MAX_VISIBLE_LIGHTS;
-    uint i;
-    for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
-        int lightindex = lightIndices[i + offset];
-        
-        if (lightindex == -1) break;
-    
-        var light = pc.lights[lightindex];
+    for (limit += pc.sceneInfo.pointLightCount; i < limit; i++) {
+        var light = pc.lights[i];
         light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
         fragment += CalcPointLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }
-    
-    //for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
-    //    int lightindex = lightIndices[i + offset];
-    //    
-    //    if (lightindex == -1) break;
-    //
-    //    Light light = pc.lights[lightindex];
-    //    light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
-    //    light.lightDir = mul(light.lightDir, normalTransform);
-    //
-    //    fragment += CalcSpotLight(light, input.position.xyz, N, diff.xyz, metallicRoughness);
-    //}
 
-    //var index = 0U;
-    //var limit = 0U;
-    //
-    //for (limit += pc.sceneInfo.pointLightCount; index < limit; index++) {
-    //    var light = pc.lights[index];
-    //    light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
-    //    fragment += CalcPointLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
-    //}
+    for (limit += pc.sceneInfo.spotLightCount; i < limit; i++) {
+        Light light = pc.lights[i];
+        light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
+        light.lightDir = mul(light.lightDir, normalTransform);
 
-    var index = 0U;
-    var limit = pc.sceneInfo.pointLightCount;
-    index = pc.sceneInfo.spotLightCount;
-    limit += pc.sceneInfo.spotLightCount;
+        fragment += CalcSpotLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
+    }
 
-    index += pc.sceneInfo.pointLightCount;
-    for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
-        var light = pc.lights[index];
+    for (limit += pc.sceneInfo.dirLightCount; i < limit; i++) {
+        var light = pc.lights[i];
         light.lightDir = mul(light.lightDir, normalTransform);
     	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }

@@ -85,7 +85,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     //InterlockedMax(maxDepthInt, depthInt);
     //InterlockedMin(minDepthInt, depthInt);
 
-    GroupMemoryBarrierWithGroupSync();
+    //GroupMemoryBarrierWithGroupSync();
 
     // Compute tile frustum.
     float minDepth = asfloat(minDepthInt);
@@ -99,15 +99,15 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     minPlane.dist   = -minDepthView;
 
     // Cull point lights.
-	uint offset = index * MAX_VISIBLE_LIGHTS;
-    
+    uint offset = index * MAX_VISIBLE_LIGHTS;
+
     if (cs.LocalInvocationIndex < pc.sceneInfo.pointLightCount) {
         let light = pc.lights[cs.LocalInvocationIndex];
-
+    
         Sphere s;
         s.pos = mul(*pc.view, float4(light.pos, 1)).xyz;
         s.r   = light.radius;
-
+    
         if (SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
             uint currentCount;
             InterlockedAdd(visiblePointLightsCount, 1, currentCount);
@@ -115,7 +115,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 		}
     }
 
-    GroupMemoryBarrierWithGroupSync();
+    //GroupMemoryBarrierWithGroupSync();
 
     // Cull spot lights.
 	//float4x4 normalTransform = transpose(pc.invView);
@@ -140,7 +140,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     if(cs.LocalInvocationIndex == 0) {
         if (visiblePointLightsCount < MAX_VISIBLE_LIGHTS)
             lightIndices[offset + visiblePointLightsCount] = -1;
-
+    
         if (visibleSpotLightsCount < MAX_VISIBLE_LIGHTS)
             lightIndices[offset + visiblePointLightsCount + 1 + visibleSpotLightsCount] = -1;
     }
