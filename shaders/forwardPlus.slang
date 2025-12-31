@@ -126,17 +126,17 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
         fragment += CalcPointLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }
     
-    //for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
-    //    int lightindex = lightIndices[i + offset];
-    //    
-    //    if (lightindex == -1) break;
-    //
-    //    Light light = pc.lights[lightindex];
-    //    light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
-    //    light.lightDir = mul(light.lightDir, normalTransform);
-    //
-    //    fragment += CalcSpotLight(light, input.position.xyz, N, diff.xyz, metallicRoughness);
-    //}
+    for (i++; i < MAX_VISIBLE_LIGHTS; i++) {
+        int lightindex = lightIndices[i + offset];
+        
+        if (lightindex == -1) break;
+    
+        Light light = pc.lights[lightindex];
+        light.pos = mul(float4(light.pos, 1), *pc.view).xyz;
+        light.lightDir = mul(light.lightDir, normalTransform);
+
+        fragment += CalcSpotLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
+    }
 
     //var index = 0U;
     //var limit = 0U;

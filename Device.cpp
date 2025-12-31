@@ -16,9 +16,10 @@ Device::Device(vk::Instance& instance) {
 
     // List of extensions used in main render path.
     std::vector<const char*> deviceExtensions;
-    deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME); //
-    deviceExtensions.push_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME); //
-    deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME); //
+    deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     //deviceExtensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME); //
     //deviceExtensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
     std::vector<bool> extensionSupported(deviceExtensions.size());
@@ -56,9 +57,13 @@ Device::Device(vk::Instance& instance) {
     auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
         .setDynamicRendering(vk::True);
         //.setPNext(&unifiedImageFeatures);
+    auto shaderDerivativesFeatures = vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR()
+        .setComputeDerivativeGroupLinear(vk::True)
+        .setComputeDerivativeGroupQuads(vk::True)
+        .setPNext(&dynamicRenderingFeaturesIMGUI);
     auto descriptorIndexingFeatures = vk::PhysicalDeviceDescriptorIndexingFeatures()
         .setRuntimeDescriptorArray(vk::True)
-        .setPNext(&dynamicRenderingFeaturesIMGUI);
+        .setPNext(&shaderDerivativesFeatures);
     auto bufferDeviceAddressFeatures = vk::PhysicalDeviceBufferDeviceAddressFeatures()
         .setBufferDeviceAddress(vk::True)
         .setPNext(&descriptorIndexingFeatures);

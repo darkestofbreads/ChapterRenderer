@@ -9,8 +9,8 @@ bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
 }
 bool SphereInsideFrustum( Sphere sphere, Frustum frustum, float zNear, float zFar ) {
-    //if (sphere.pos.z - sphere.r > zNear || sphere.pos.z + sphere.r < zFar)
-    //    return false;
+    if (sphere.pos.z - sphere.r > zNear || sphere.pos.z + sphere.r < zFar)
+        return false;
 
     for(uint i = 0; i < 4; i++) {
         if( SphereInsidePlane(sphere, frustum.planes[i]) )
@@ -78,14 +78,14 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     GroupMemoryBarrierWithGroupSync();
 
     // Compute min and max depth of tile.
-    //let uv = cs.GlobalInvocationID.xy / float2(pc.sceneInfo.width, pc.sceneInfo.height);
-    //let depth    = depth.Sample(uv).x;
-    //let depthInt = asuint(depth);
-    //
-    //InterlockedMax(maxDepthInt, depthInt);
-    //InterlockedMin(minDepthInt, depthInt);
+    let uv = cs.GlobalInvocationID.xy / float2(pc.sceneInfo.width, pc.sceneInfo.height);
+    let depth    = depth.Sample(uv).x;
+    let depthInt = asuint(depth);
+    
+    InterlockedMax(maxDepthInt, depthInt);
+    InterlockedMin(minDepthInt, depthInt);
 
-    //GroupMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync();
 
     // Compute tile frustum.
     float minDepth = asfloat(minDepthInt);
@@ -103,9 +103,9 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 
     if (cs.LocalInvocationIndex < pc.sceneInfo.pointLightCount) {
         let light = pc.lights[cs.LocalInvocationIndex];
-    
+
         Sphere s;
-        s.pos = mul(*pc.view, float4(light.pos, 1)).xyz;
+        s.pos = mul(float4(light.pos, 1), *pc.view).xyz;
         s.r   = light.radius;
     
         if (SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
@@ -115,25 +115,25 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 		}
     }
 
-    //GroupMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync();
 
     // Cull spot lights.
-	//float4x4 normalTransform = transpose(pc.invView);
-    //if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
-    //    let light = bufferAddresses.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
-    //
-    //    Cone c;
-    //    c.height = light.radius;
-    //    c.tip = mul(pc.view, float4(light.pos, 1)).xyz;
-    //    c.dir = normalize(mul(normalTransform, light.lightDir).xyz);
-    //    c.r   = tan(acos(light.cutoff)) * light.radius;
-    //
-    //    if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
-    //        uint currentCount;
-    //        InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
-	//		lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);
-	//	}
-    //}
+	float4x4 normalTransform = transpose(*pc.invView);
+    if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
+        let light = pc.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
+    
+        Cone c;
+        c.height = light.radius;
+        c.tip = mul(float4(light.pos, 1), *pc.view).xyz;
+        c.dir = normalize(mul(light.lightDir, normalTransform).xyz);
+        c.r   = tan(acos(light.cutoff)) * light.radius;
+    
+        if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
+            uint currentCount;
+            InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
+			lightIndices[offset + visiblePointLightsCount + 1 + currentCount] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);
+		}
+    }
 
     GroupMemoryBarrierWithGroupSync();
 
