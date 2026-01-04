@@ -74,8 +74,8 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     uint index = tileID.y * pc.sceneInfo.tileCountX + tileID.x;
     
     if (cs.LocalInvocationIndex == 0) {
-	    minDepthInt = 0xffffffff;
-	    maxDepthInt = 0;
+	    minDepthInt = 0;
+	    maxDepthInt = 0xffffffff;
 		visiblePointLightsCount = 0;
         visibleSpotLightsCount  = 0;
         frustum = tileFrustums[index];
@@ -88,8 +88,8 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     let depth    = depth.Sample(uv).x;
     let depthInt = asuint(depth);
     
-    InterlockedMax(maxDepthInt, depthInt);
-    InterlockedMin(minDepthInt, depthInt);
+    InterlockedMin(maxDepthInt, depthInt);
+    InterlockedMax(minDepthInt, depthInt);
 
     GroupMemoryBarrierWithGroupSync();
 

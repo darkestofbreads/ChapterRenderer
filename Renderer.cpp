@@ -65,7 +65,7 @@ void Renderer::Draw() {
     // Depth pre-pass.
     graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
-    graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eLess);
+    graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eGreater);
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     
     // Depth prepass.
@@ -236,7 +236,9 @@ void Renderer::BuildGlobalTransform() {
     const auto up     = glm::vec3(0, 1.0f, 0);
 
     view = glm::lookAt(position, position + direction, up);
-    proj = glm::perspective(glm::radians(fovY), ratio, near, far);
+
+    // Near and far are swapped to create a reserve z.
+    proj = glm::perspective(glm::radians(fovY), ratio, far, near);
     projViewTransform = {
         proj * view
     };
@@ -264,7 +266,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
     depthAttachment = vk::RenderingAttachmentInfo()
         .setLoadOp(vk::AttachmentLoadOp::eClear)
         .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(vk::ClearDepthStencilValue(1.0f, 0))
+        .setClearValue(vk::ClearDepthStencilValue(0, 0))
         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
         .setImageView(depthImageView)
         .setResolveMode(vk::ResolveModeFlagBits::eNone)
@@ -406,7 +408,7 @@ void Renderer::CreatePipeline() {
 
     forwardShaders      = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
-    forwardPlusTestShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
+    forwardPlusTestShaders = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
     lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
 

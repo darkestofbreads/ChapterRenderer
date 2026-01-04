@@ -78,5 +78,16 @@ void meshMain(
     vertices[2].position = mul(float4(vertex2.position, 1.0), projView);
 }
 
+struct DepthFragOut {
+    float depth : SV_Depth;
+}
+
 [shader("pixel")]
-void fragMain() {}
+void fragMain(/*uniform PushConstant pc, float4 pos : SV_Position*/) {
+    //DepthFragOut depthOut;
+    //
+    //let currentDepth = pos.z / pos.w;
+    //depthOut.depth = currentDepth;
+    //
+    //return depthOut;
+}
