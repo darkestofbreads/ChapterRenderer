@@ -54,9 +54,10 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(tileFrustumBuffer.buffer)
             .setSize(tileFrustumsSize);
-        
+
+        const auto tileBarriers = { tileFrustumsBarrier };
         const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
-            .setBufferMemoryBarriers(tileFrustumsBarrier);
+            .setBufferMemoryBarriers(tileBarriers);
         
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
     }
@@ -99,7 +100,11 @@ void Renderer::Draw() {
 
         uint32_t lightCullX = (swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16;
         uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
-        graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
+        if(!useForwardPlusTestShader)
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
+        else
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingTestShader, dldid);
+
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
         
         const auto lightIndicesBarrier = vk::BufferMemoryBarrier2()
@@ -129,14 +134,21 @@ void Renderer::Draw() {
     // Forward shading and specular.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     if (doLightCulling) {
-         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
-         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-
-         if (showLightHeatmap) {
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+        if (!useForwardPlusTestShader) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        }
+        else {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusTestShaders, dldid);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        }
+
+        if (showLightHeatmap) {
+           graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+           graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+           graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
         }
     }
     else {
@@ -392,11 +404,14 @@ void Renderer::CreatePipeline() {
         .setSize(sizeof(PushConstantData))
         .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute);
 
-    forwardShaders     = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
+    forwardShaders      = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
+    forwardPlusTestShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
     lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
-    lightCullingShader  = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
+
+    lightCullingTestShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingTest", dldid, perspectiveRange, descriptorLayouts);
+    lightCullingShader       = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
 
     auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
@@ -1111,6 +1126,8 @@ void Renderer::ImGui_Draw(double frameTime) {
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
     if (doLightCulling)
         ImGui::Checkbox("   Show light heatmap", &showLightHeatmap);
+    if (doLightCulling)
+        ImGui::Checkbox("   Use experimental shader", &useForwardPlusTestShader);
 }
 void Renderer::LoadModels_Init() {
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);

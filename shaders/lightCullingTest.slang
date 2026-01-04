@@ -46,6 +46,7 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
 
     return true;
 }
+
 bool SphereInsideAABB(Sphere s, AABB aabb) {
     let vDelta = max(0, abs(aabb.center.xyz - s.pos) - aabb.size.xyz);
     let fDistSq = dot(vDelta, vDelta);
@@ -109,16 +110,16 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         let id = cs.WorkGroupID;
         float3 viewSpace[8];
         viewSpace[0] = ScreenToView(float4(id.xy * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[1] = ScreenToView(float4(float2(id.x + 1, id.y) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[2] = ScreenToView(float4(float2(id.x, id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[3] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj) .xyz;
-
+        viewSpace[1] = ScreenToView(float4(float2(id.x + 1, id.y    ) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[2] = ScreenToView(float4(float2(id.x    , id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[3] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        
         viewSpace[4] = ScreenToView(float4(id.xy * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[5] = ScreenToView(float4(float2(id.x + 1, id.y) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[6] = ScreenToView(float4(float2(id.x, id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[7] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj) .xyz;
-
-        float3 minAABB = 10000000;
+        viewSpace[5] = ScreenToView(float4(float2(id.x + 1, id.y    ) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[6] = ScreenToView(float4(float2(id.x    , id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[7] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
+        
+        float3 minAABB =  10000000;
         float3 maxAABB = -10000000;
         for (var i = 0; i < 8; i++) {
             minAABB = min(minAABB, viewSpace[i]);

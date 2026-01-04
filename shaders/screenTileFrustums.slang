@@ -2,12 +2,6 @@
 
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
 
-float4 ScreenToView(float4 screen, SceneInfo sceneInfo, float4x4 invProj) {
-    var coord = screen.xy / float2(sceneInfo.width, sceneInfo.height);
-    var clip = float4(float2(coord.x, 1.0 - coord.y) * 2.0 - 1.0, screen.z, screen.w);
-    return ClipToView(clip, invProj);
-}
-
 Plane ComputePlane(float3 p0, float3 p1, float3 p2) {
     Plane plane;
     var v0 = p1 - p0;

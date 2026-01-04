@@ -190,6 +190,7 @@ private:
 	bool doLightCulling = true;
 	bool drawUI = true;
 	bool showLightHeatmap = false;
+	bool useForwardPlusTestShader = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -217,6 +218,10 @@ private:
 	// Tile frustums.
 	AllocatedBuffer tileFrustumBuffer;
 	size_t tileFrustumsSize;
+
+	// Tile AABBs.
+	AllocatedBuffer tileAABBBuffer;
+	size_t tileAABBsSize;
 
 	// Buffer addresses.
 	GPUBuffer bufferAddressBuffer;
@@ -294,26 +299,28 @@ private:
 	vk::Fence immediateFence;
 
 	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
-	std::vector<Vertex>				vertices;
-	std::vector<meshopt_Meshlet>	meshlets;
-	std::vector<MeshletBounds>		meshletBounds;
-	std::vector<uint32_t>			meshletVertices;
-	std::vector<uint8_t>			meshletTriangles;
+	std::vector<Vertex>			 vertices;
+	std::vector<meshopt_Meshlet> meshlets;
+	std::vector<MeshletBounds>	 meshletBounds;
+	std::vector<uint32_t>		 meshletVertices;
+	std::vector<uint8_t>		 meshletTriangles;
 
 	std::vector<MeshView>			meshViews;
 	std::vector<MaterialIndexGroup> materialIndexGroups;
 	std::vector<uint32_t>			materialIndices;
 
-	std::vector<Light>			    lights;
-	std::vector<Light>			    pointLights;
-	std::vector<Light>			    spotLights;
-	std::vector<Light>			    dirLights;
+	std::vector<Light> lights;
+	std::vector<Light> pointLights;
+	std::vector<Light> spotLights;
+	std::vector<Light> dirLights;
 
 	std::vector<vk::ShaderEXT> forwardShaders;
 	std::vector<vk::ShaderEXT> forwardPlusShaders;
+	std::vector<vk::ShaderEXT> forwardPlusTestShaders;
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	vk::ShaderEXT lightCullingShader;
+	vk::ShaderEXT lightCullingTestShader;
 	vk::ShaderEXT screenTileFrustumsShader;
 
 	std::array<vk::ShaderStageFlagBits, 4> meshStages = {

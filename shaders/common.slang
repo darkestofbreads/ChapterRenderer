@@ -86,6 +86,25 @@ struct Frustum {
 	Plane planes[6];
 };
 
+struct AABB {
+    float4 min;
+    float4 max;
+    float4 size;
+    float4 center;
+}
+AABB ComputeAABB(float4 min, float4 max) {
+    AABB aabb;
+    aabb.min = min;
+    aabb.max = max;
+    aabb.center = (min + max) * 0.5;
+    aabb.size = abs(max - aabb.center);
+
+    return aabb;
+}
+AABB ComputeAABB(float3 min, float3 max) {
+    return ComputeAABB(float4(min, 1.0), float4(max, 1.0));
+}
+
 struct Vertex {
 	float3 position;
 	float u;
@@ -187,6 +206,11 @@ float4 ClipToView(float4 clip, float4x4 invProj) {
     var view = mul(clip, invProj);
     view = view / view.w;
     return view;
+}
+float4 ScreenToView(float4 screen, SceneInfo sceneInfo, float4x4 invProj) {
+    var coord = screen.xy / float2(sceneInfo.width, sceneInfo.height);
+    var clip = float4(float2(coord.x, 1.0 - coord.y) * 2.0 - 1.0, screen.z, screen.w);
+    return ClipToView(clip, invProj);
 }
 
 #endif
