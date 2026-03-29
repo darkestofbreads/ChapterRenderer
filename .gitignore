@@ -1,3 +1,5 @@
 build
 /.vs
 assets
+.idea
+cmake-build-debug

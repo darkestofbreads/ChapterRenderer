@@ -1,4 +1,9 @@
 #pragma once
+
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define GLM_FORCE_SWIZZLE
+
 #include "Shader.h"
 #include "Swapchain.h"
 #include "Device.h"
@@ -13,14 +18,11 @@
 #include "imgui/imgui_impl_sdl3.h"
 #include "imgui/imgui_impl_vulkan.h"
 
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
-#define GLM_FORCE_SWIZZLE
-
 #include <vulkan/vulkan.hpp>
 
 #include <vma/vk_mem_alloc.h>
 
+#include <glm/common.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>

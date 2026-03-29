@@ -1,7 +1,5 @@
 #include "Instance.h"
 
-#include <iostream>
-
 Instance::Instance() {
 
 }

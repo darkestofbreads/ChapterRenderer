@@ -225,7 +225,7 @@ std::array<glm::vec4, 6> ExtractFrustum(glm::mat4 mat) {
 
     std::array<glm::vec4, 6> planes = { near, far, right, left, top, bottom };
     for (size_t i = 0; i < planes.size(); i++) {
-        const auto lenght = std::sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
+        const auto lenght = sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
         planes[i] /= lenght;
     }
 
@@ -260,12 +260,9 @@ void Renderer::BuildGlobalTransform() {
         proj * view
     };
     const auto frustum = ExtractFrustum(projViewTransform);
-    vertices[0] = { frustum[0].xyz, frustum[0].w, glm::vec3(0), 0 };
-    vertices[1] = { frustum[1].xyz, frustum[1].w, glm::vec3(0), 0 };
-    vertices[2] = { frustum[2].xyz, frustum[2].w, glm::vec3(0), 0 };
-    vertices[3] = { frustum[3].xyz, frustum[3].w, glm::vec3(0), 0 };
-    vertices[4] = { frustum[4].xyz, frustum[4].w, glm::vec3(0), 0 };
-    vertices[5] = { frustum[5].xyz, frustum[5].w, glm::vec3(0), 0 };
+    for (int i = 0; i < 6; i++) {
+        vertices[i] = { glm::vec3(frustum[i].x, frustum[i].y, frustum[i].z), frustum[i].w, glm::vec3(0), 0 };
+    }
 }
 
 bool Renderer::AquireImageIndex(uint32_t& index) {
@@ -689,8 +686,9 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
 
                 verticesLocal.resize(positions.size());
                 for (size_t i = 0; i < positions.size(); i++) {
-
-                    verticesLocal[i] = { (transform * glm::vec4(positions[i], 1)).xyz, texCoords[i].x, glm::normalize(normalTransform * normals[i]), texCoords[i].y };
+                    const auto pos4 = transform * glm::vec4(positions[i], 1);
+                    const auto pos = glm::vec3(pos4.x, pos4.y, pos4.z);
+                    verticesLocal[i] = { pos, texCoords[i].x, glm::normalize(normalTransform * normals[i]), texCoords[i].y };
                 }
 
                 std::cout << "Took " << parts.GetMilliseconds() << " ms to add vertices." << "\n";
@@ -842,12 +840,12 @@ template<typename T>
 GPUBuffer Renderer::UploadData(T&& data) {
     const auto size = sizeof(T);
 
-    auto buffer = CreateAllocatedBuffer(size, vk::BufferUsageFlagBits::eStorageBuffer |
+    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
         vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
     auto addressInfo = vk::BufferDeviceAddressInfo()
         .setBuffer(buffer.buffer);
 
-    auto stageBuffer = CreateAllocatedBuffer(size,
+    auto stageBuffer = CreateAllocatedBuffer(allocator, size,
         vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
     auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
     std::memcpy(byteData, &data, size);
