@@ -82,6 +82,16 @@ struct Plane
 	float dist;
 };
 
+Plane ComputePlane(float3 p0, float3 p1, float3 p2) {
+    Plane plane;
+    var v0 = p1 - p0;
+    var v1 = p2 - p0;
+
+    plane.normal = normalize(cross(v0, v1));
+    plane.dist = dot(plane.normal, p0);
+    return plane;
+}
+
 struct Frustum {
 	Plane planes[6];
 };

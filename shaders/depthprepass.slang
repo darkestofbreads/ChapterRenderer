@@ -5,6 +5,17 @@ struct TaskShaderOutput {
     uint triangleOffset;
 };
 
+bool SphereInsidePlane(Sphere sphere, Plane plane) {
+    let a = plane.normal * sphere.pos;
+    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
+}
+bool SphereInsideFrustum(Frustum f, Sphere s) {
+    for (int i = 0; i < 6; i++) {
+        if (!SphereInsidePlane(s, f.planes[i])) return false;
+    }
+    return true;
+}
+
 groupshared TaskShaderOutput payload;
 
 [shader("amplification")]
@@ -22,10 +33,12 @@ void taskMain(
     let view = pc.meshViews[bound.meshID];
 
     // Frustum culling against the meshlets sphere.
-    for (int i = 0; i < 6; i++) {
-        let a = pc.vertices[i].position.xyz * bound.sphereCenter;
-        if (a.x + a.y + a.z + pc.vertices[i].u <= -bound.sphereRadius) return;
-    }
+    Frustum viewFrustum;
+    for (var i = 0; i < 6; i++)
+        viewFrustum.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
+    let boundingSphere = Sphere(bound.sphereCenter, bound.sphereRadius);
+
+    if (!SphereInsideFrustum(viewFrustum, boundingSphere)) return;
 
     // Backface culling against the meshlets cone.
     let coneTip = bound.coneTip;

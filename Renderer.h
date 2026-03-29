@@ -36,6 +36,7 @@
 
 constexpr uint32_t TILE_SIZE = 16;
 constexpr uint32_t MAX_LIGHTS_PER_TILE = 128;
+constexpr uint32_t SHADOW_MAP_RESOLUTION = 4096;
 
 struct Vertex {
 	glm::vec3 Position;
@@ -215,6 +216,10 @@ private:
 	AllocatedBuffer lightIndicesBuffer;
 	size_t lightIndicesSize;
 
+	// Light indices in view.
+	AllocatedBuffer lightIndicesViewBuffer;
+	size_t lightIndicesViewSize;
+
 	// Tile frustums.
 	AllocatedBuffer tileFrustumBuffer;
 	size_t tileFrustumsSize;
@@ -320,6 +325,7 @@ private:
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	vk::ShaderEXT lightCullingShader;
+	vk::ShaderEXT lightCullingViewShader;
 	vk::ShaderEXT lightCullingTestShader;
 	vk::ShaderEXT screenTileFrustumsShader;
 
