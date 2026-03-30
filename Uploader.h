@@ -13,6 +13,7 @@ struct AllocatedBuffer {
 struct AllocatedImage {
 	vk::Image image;
 	vk::ImageView view;
+	vk::Sampler sampler;
 	VmaAllocation alloc;
 };
 

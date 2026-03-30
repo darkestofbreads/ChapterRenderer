@@ -11,6 +11,7 @@
 #include "Command.h"
 #include "Timer.h"
 #include "Uploader.h"
+#include "Descriptors.h"
 
 #include "stb_image.h"
 
@@ -236,7 +237,6 @@ private:
 
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
-	std::vector<vk::DescriptorSet> descriptorSets;
 
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
@@ -280,6 +280,7 @@ private:
 
 	Device device;
 	Swapchain swapchain;
+	AllocatedImage depthImage;
 	vk::Image depthStencilImage;
 	vk::ImageView depthImageView;
 	vk::ImageView stencilImageView;
@@ -288,6 +289,7 @@ private:
 	vk::ImageSubresourceRange depthStencilSubresourceRange;
 	void CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
 
+	Descriptors descriptors;
 	Instance instance;
 	Timer frameTimer;
 
