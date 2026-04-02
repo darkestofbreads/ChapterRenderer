@@ -3,6 +3,8 @@
 
 #include "Renderer.h"
 
+#include "simdjson.h"
+
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     InitMainObjects(window, ready);
     CreateFencesAndSemaphores();
@@ -44,7 +46,7 @@ void Renderer::Draw() {
         uint32_t lightCullX = (swapchain.renderExtend.width + (swapchain.renderExtend.width % 16)) / 16;
         uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
-        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
         
         const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
@@ -72,7 +74,7 @@ void Renderer::Draw() {
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
-        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     
         graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
@@ -83,7 +85,7 @@ void Renderer::Draw() {
 
     // Light culling.
     if (doLightCulling) {
-        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
 
         if (useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingViewShader, dldid);
@@ -153,24 +155,22 @@ void Renderer::Draw() {
     if (doLightCulling) {
         if (!useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
-            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        } else if (showLightHeatmap) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
         }
         else {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusTestShaders, dldid);
-            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-        }
-
-        if (showLightHeatmap) {
-           graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
-           graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
-           graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
         }
     }
     else {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardShaders, dldid);
-        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
     
@@ -420,6 +420,7 @@ void Renderer::CreatePipeline() {
         .setSize(sizeof(PushConstantData))
         .setStageFlags(vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute);
 
+    descriptorLayouts.emplace_back(descriptors.descriptorLayout);
     forwardShaders      = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusTestShaders = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
@@ -431,7 +432,7 @@ void Renderer::CreatePipeline() {
     lightCullingShader       = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
 
-    auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
+    const auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
         .setSetLayouts(descriptorLayouts);
     pipelineLayout = device.device.createPipelineLayout(pipelineLayoutInfo);
@@ -961,7 +962,7 @@ AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk:
     vk::ImageView imageView;
     imageView = CreateImageView(image, format, subresource);
     
-    return {image, imageView, alloc};
+    return {image, imageView, nearestSampler, alloc};
 }
 void Renderer::CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
     // Get supported depth format.
@@ -1169,21 +1170,21 @@ void Renderer::LoadModels_Init() {
     //monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
     //LoadGLTF("assets/monke.glb", monkeTrans);
     //
-    ////Many sponzas for benchmarking.
-    //for (size_t i = 0; i < 1; i++) {
-    //    for (size_t j = 0; j < 1; j++) {
-    //        for (size_t k = 0; k < /*3*/1; k++) {
-    //            auto sponzaTrans = glm::mat4(1.0f);
-    //            sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
-    //            sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-    //            LoadGLTF("assets/sponza.glb", sponzaTrans);
-    //        }
-    //    }
-    //}
+    //Many sponzas for benchmarking.
+    for (size_t i = 0; i < 1; i++) {
+        for (size_t j = 0; j < 1; j++) {
+            for (size_t k = 0; k < /*3*/1; k++) {
+                auto sponzaTrans = glm::mat4(1.0f);
+                sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
+                sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
+                LoadGLTF("assets/sponza.glb", sponzaTrans);
+            }
+        }
+    }
 
     auto bistroTrans = glm::mat4(1.0f);
     bistroTrans = glm::scale(bistroTrans, glm::vec3(0.001f));
-    LoadGLTF("assets/amazon_lumberyard_bistro.glb", bistroTrans);
+    //LoadGLTF("assets/amazon_lumberyard_bistro.glb", bistroTrans);
 
     std::cout << "\nLoaded all models.\n";
     std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes\n";
@@ -1296,74 +1297,6 @@ void Renderer::CreateSamplers_Init() {
     linearSampler = device.device.createSampler(linearSamplerInfo);
 }
 void Renderer::CreateDescSets_Init() {
-    std::vector<vk::DescriptorSetLayoutBinding> layoutBindings = {
-        vk::DescriptorSetLayoutBinding()
-        .setBinding(0)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(textures.size())
-        .setStageFlags(vk::ShaderStageFlagBits::eFragment),
-        vk::DescriptorSetLayoutBinding()
-        .setBinding(1)
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eCompute),
-        vk::DescriptorSetLayoutBinding()
-        .setBinding(2)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eCompute | vk::ShaderStageFlagBits::eFragment),
-        vk::DescriptorSetLayoutBinding()
-        .setBinding(3)
-        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eAll),
-        vk::DescriptorSetLayoutBinding()
-        .setBinding(4)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eCompute),
-                vk::DescriptorSetLayoutBinding()
-        .setBinding(5)
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1)
-        .setStageFlags(vk::ShaderStageFlagBits::eCompute)
-    };
-    std::vector<vk::DescriptorPoolSize> descPoolSizes = {
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(textures.size()),
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eCombinedImageSampler)
-        .setDescriptorCount(1),
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1),
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eUniformBuffer)
-        .setDescriptorCount(1),
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1),
-        vk::DescriptorPoolSize()
-        .setType(vk::DescriptorType::eStorageBuffer)
-        .setDescriptorCount(1)
-    };
-    
-    auto descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
-        .setBindings(layoutBindings);
-    descriptorLayouts.emplace_back(device.device.createDescriptorSetLayout(descriptorLayoutInfo));
-    
-    auto descPoolInfo = vk::DescriptorPoolCreateInfo()
-        .setMaxSets(1)
-        .setPoolSizes(descPoolSizes);
-    auto descPool = device.device.createDescriptorPool(descPoolInfo);
-    
-    // Descriptor sets.
-    auto descAlloc = vk::DescriptorSetAllocateInfo()
-        .setDescriptorPool(descPool)
-        .setSetLayouts(descriptorLayouts);
-    descriptorSets = device.device.allocateDescriptorSets(descAlloc);
-    
     // Buffers.
     lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
     lightIndicesBuffer  = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
@@ -1384,80 +1317,24 @@ void Renderer::CreateDescSets_Init() {
     bufferAddresses.lightBufferAddress = lightBufferAddress.address;
 
     bufferAddressBuffer.buffer = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).buffer;
-    std::vector<BufferAddresses> bufferAddressesVec = { bufferAddresses };
+    std::vector bufferAddressesVec = { bufferAddresses };
 
-    std::function<void()> addresses = [&]() { UpdateBuffer<BufferAddresses>(bufferAddressBuffer, bufferAddressesVec, stageBuffers[0]); };
+    const std::function<void()> addresses = [&]() { UpdateBuffer<BufferAddresses>(bufferAddressBuffer, bufferAddressesVec, stageBuffers[0]); };
     SubmitImmediate(addresses);
     vmaDestroyBuffer(allocator, stageBuffers[0].buffer, stageBuffers[0].alloc);
 
-    // Descriptors.
-    std::vector<vk::DescriptorImageInfo> imageDescriptors;
-    imageDescriptors.reserve(textures.size());
-    for (size_t i = 0; i < textures.size(); i++) {
-        auto imageDescriptor = vk::DescriptorImageInfo()
-            .setSampler(nearestSampler)
-            .setImageLayout(vk::ImageLayout::eGeneral)
-            .setImageView(textures[i].view);
-    
-        imageDescriptors.emplace_back(imageDescriptor);
-    }
-    auto depthDescriptor = vk::DescriptorImageInfo()
-        .setSampler(nearestSampler)
-        .setImageLayout(vk::ImageLayout::eDepthReadOnlyOptimal)
-        .setImageView(depthImageView);
-    auto lightIndicesDescriptor = vk::DescriptorBufferInfo()
-        .setBuffer(lightIndicesBuffer.buffer)
-        .setRange(lightIndicesSize);
-    auto lightIndicesViewDescriptor = vk::DescriptorBufferInfo()
-        .setBuffer(lightIndicesViewBuffer.buffer)
-        .setRange(lightIndicesViewSize);
-    auto bufferAddressDescriptor = vk::DescriptorBufferInfo()
-        .setBuffer(bufferAddressBuffer.buffer)
-        .setRange(sizeof(BufferAddresses));
-    auto frustumBufferDescriptor = vk::DescriptorBufferInfo()
-        .setBuffer(tileFrustumBuffer.buffer)
-        .setRange(tileFrustumsSize);
+    depthImage.sampler = nearestSampler;
+    depthImage.image = depthStencilImage;
+    depthImage.view = depthImageView;
 
-    std::vector<vk::WriteDescriptorSet> descWrite = {
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(0)
-        .setDescriptorCount(imageDescriptors.size())
-        .setImageInfo(imageDescriptors),
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(1)
-        .setDescriptorCount(1)
-        .setImageInfo(depthDescriptor),
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(2)
-        .setDescriptorCount(1)
-        .setBufferInfo(lightIndicesDescriptor),
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eUniformBuffer)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(3)
-        .setDescriptorCount(1)
-        .setBufferInfo(bufferAddressDescriptor),
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(4)
-        .setDescriptorCount(1)
-        .setBufferInfo(frustumBufferDescriptor),
-        vk::WriteDescriptorSet()
-        .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-        .setDstSet(descriptorSets[0])
-        .setDstBinding(5)
-        .setDescriptorCount(1)
-        .setBufferInfo(lightIndicesViewDescriptor)
-    };
-    
-    std::function<void()> descFunc = [&]() { device.device.updateDescriptorSets(descWrite, nullptr); };
+    descriptors = Descriptors();
+    descriptors.AddImageDescriptor(textures, vk::ImageLayout::eGeneral, 0);
+    descriptors.AddImageDescriptor(depthImage, vk::ImageLayout::eDepthReadOnlyOptimal, 1);
+    descriptors.AddBufferDescriptor(lightIndicesBuffer.buffer, lightIndicesSize, vk::DescriptorType::eStorageBuffer, 2);
+    descriptors.AddBufferDescriptor(tileFrustumBuffer.buffer, tileFrustumsSize, vk::DescriptorType::eStorageBuffer, 4);
+    descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 5);
+
+    const std::function<void()> descFunc = [&]() { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);
     device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
 }
