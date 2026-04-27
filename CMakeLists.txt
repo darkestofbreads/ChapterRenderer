@@ -28,7 +28,7 @@ add_dependencies(ChapterOne CopyShaders)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(BUILD_SHARED_LIBS ON)
 
-add_subdirectory(extern/SDL)
+add_subdirectory(extern/sdl)
 add_subdirectory(extern/fastgltf)
 add_subdirectory(extern/meshoptimizer)
 
