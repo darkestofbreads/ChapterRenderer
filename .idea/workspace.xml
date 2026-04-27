@@ -40,15 +40,150 @@
     <cargoProject FILE="$PROJECT_DIR$/extern/fastgltf/tests/gltf-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Fix file wasn't added">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_30_03_2026_00_51_[Changes]/shelved.patch" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_30_03_2026_00_51__Changes_.xml" beforeDir="false" />
+    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Uploader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Uploader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Shader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Shader.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/LICENSE" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/gfx.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/gfx.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-compiler.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-glsl-module.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-glslang.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-llvm.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-rt.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/bindless-storage.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/buffer-storage.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/inline-vector.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/istorages.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/ivector.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/neural.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang-standard-module-2025.22.1/neural.slang-module" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang.dll" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slang.slang" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slangc.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slangd.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/bin/slangi.exe" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/cmake/slangConfig.cmake" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/cmake/slangConfigVersion.cmake" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/cmake/slangTargets-release.cmake" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/cmake/slangTargets.cmake" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-com-helper.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-com-ptr.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cpp-host-prelude.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cpp-prelude.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cpp-scalar-intrinsics.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cpp-types-core.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cpp-types.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-cuda-prelude.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-deprecated.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-gfx.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-hlsl-prelude.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-image-format-defs.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-llvm.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-tag-version.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang-torch-prelude.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/include/slang.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/lib/gfx.lib" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/lib/slang-compiler.lib" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/lib/slang-rt.lib" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/lib/slang.lib" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/64bit-type-support.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/_config.yml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/_includes/anchor_headings.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/_layouts/deprecated.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/_layouts/user-guide.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/assets/css/style.scss" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/assets/moduletree.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/build_reference.ps1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/build_toc.ps1" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/build_toc.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/building.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/ci.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/command-line-slangc-reference.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/cpu-target.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/cuda-target.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/debugging.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/deprecated/a1-02-slangpy.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/autodiff.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/autodiff/basics.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/autodiff/decorators.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/autodiff/ir-overview.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/autodiff/types.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/backwards-compat-for-ir-modules.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/capabilities.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/casting.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/coding-conventions.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/decl-refs.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/existential-types.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/experimental.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/interfaces.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/ir-instruction-definition.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/ir.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/overview.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/parsing.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/semantic-checking.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/serialization.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/design/stdlib-intrinsics.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/doc-system.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/faq.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/gpu-feature/derivatives-in-compute/derivatives-in-compute.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/gpu-feature/texture/footprint-queries.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-guide.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/01-introduction.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/02-lexical-structure.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/03-preprocessor.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/04-types.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/05-expressions.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/06-statements.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/07-declarations.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/08-attributes.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/language-reference/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/layout.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/nvapi-support.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/repro.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/scripts/Program.cs" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/scripts/release-note.sh" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/shader-execution-reordering.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/shader-playground.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/stdlib-doc.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/stdlib-docgen.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/target-compatibility.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/update_spirv.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/00-introduction.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/01-get-started.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/02-conventional-features.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/03-convenience-features.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/04-modules-and-access-control.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/05-capabilities.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/06-interfaces-generics.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/07-autodiff.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/07-autodiff.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/08-compiling.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/09-reflection.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/09-targets.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/10-link-time-specialization.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/11-language-version.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a1-01-matrix-layout.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a1-03-obfuscation.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a1-04-interop.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a1-05-uniformity.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a1-special-topics.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a2-01-spirv-target-specific.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a2-02-metal-target-specific.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a2-03-wgsl-target-specific.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a2-04-glsl-target-specific.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a2-target-specific-features.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a3-01-reference-capability-profiles.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a3-02-reference-capability-atoms.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/a3-reference.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/index.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/nav.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/user-guide/toc.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/extern/slang-2025.22.1-windows-x86_64/share/doc/slang/wave-intrinsics.md" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -158,6 +293,11 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="fastgltf" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="fastgltf" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
@@ -172,11 +312,11 @@
       <item itemvalue="CMake Application.ChapterOne" />
       <item itemvalue="CMake Application.CopyAssets" />
       <item itemvalue="CMake Application.CopyShaders" />
+      <item itemvalue="CMake Application.fastgltf" />
+      <item itemvalue="CMake Application.meshoptimizer" />
       <item itemvalue="CMake Application.SDL3-shared" />
       <item itemvalue="CMake Application.SDL3_test" />
       <item itemvalue="CMake Application.SDL_uclibc" />
-      <item itemvalue="CMake Application.fastgltf" />
-      <item itemvalue="CMake Application.meshoptimizer" />
     </list>
   </component>
   <component name="TaskManager">
@@ -192,7 +332,8 @@
       <workItem from="1774897894012" duration="14237000" />
       <workItem from="1777234300180" duration="9383000" />
       <workItem from="1777300341356" duration="12688000" />
-      <workItem from="1777316403653" duration="577000" />
+      <workItem from="1777316403653" duration="3292000" />
+      <workItem from="1777319717050" duration="1605000" />
     </task>
     <task id="LOCAL-00001" summary="Fixes for CLion, swizzle seems to be broken">
       <option name="closed" value="true" />
@@ -202,7 +343,15 @@
       <option name="project" value="LOCAL" />
       <updated>1774828062933</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable">
+      <option name="closed" value="true" />
+      <created>1777317357199</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1777317357199</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -227,7 +376,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Fixes for CLion, swizzle seems to be broken" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fixes for CLion, swizzle seems to be broken" />
+    <MESSAGE value="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

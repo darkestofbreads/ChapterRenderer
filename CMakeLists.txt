@@ -6,12 +6,6 @@ file(GLOB SOURCES *.cpp imgui/*.cpp *.hpp)
 
 find_package(Vulkan REQUIRED)
 
-set(SLANG_DIR ${CMAKE_SOURCE_DIR}/extern/slang-2025.22.1-windows-x86_64)
-find_package(slang REQUIRED PATHS ${SLANG_DIR})
-
-# Manually copy slang-compiler.dll
-configure_file(${SLANG_DIR}/bin/slang-compiler.dll ${CMAKE_BINARY_DIR}/slang-compiler.dll COPYONLY)
-
 # Copy assets to build.
 set(ASSETS_DIR ${CMAKE_SOURCE_DIR}/assets)
 set(TARGET_ASSETS_DIR ${CMAKE_BINARY_DIR}/assets)
@@ -42,6 +36,13 @@ target_link_libraries(ChapterOne PUBLIC Vulkan::Vulkan)
 target_link_libraries(ChapterOne PUBLIC SDL3::SDL3-shared)
 target_link_libraries(ChapterOne PUBLIC fastgltf::fastgltf)
 target_link_libraries(ChapterOne PUBLIC meshoptimizer)
-target_link_libraries(ChapterOne PUBLIC slang::slang)
+
+# Annoying script to include Slang
+find_library(SLANG_LIB NAMES slang HINTS "$ENV{VULKAN_SDK}/Lib" "$ENV{VULKAN_SDK}/lib")
+target_link_libraries(ChapterOne PRIVATE ${SLANG_LIB})
+
+if(WIN32)
+    configure_file($ENV{VULKAN_SDK}/Bin/slang.dll ${CMAKE_BINARY_DIR}/slang.dll COPYONLY)
+endif()
 
 set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)
