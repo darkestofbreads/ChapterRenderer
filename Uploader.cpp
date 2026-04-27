@@ -5,12 +5,12 @@ Uploader::Uploader(VmaAllocator Allocator) {
     uploads = std::vector<UploadInfo>();
 }
 
-AllocatedBuffer Uploader::Upload(vk::CommandBuffer cmbBuffer) {
+AllocatedBuffer Uploader::Upload(vk::CommandBuffer cmbBuffer, vk::Device device) {
     AllocatedBuffer stageBuffer;
 	if (uploads.empty())
 		return stageBuffer;
 
-    stageBuffer = CreateAllocatedBuffer(allocator, stageBufferSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_AUTO);
+    stageBuffer = CreateAllocatedBuffer(device, allocator, stageBufferSize, vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_AUTO);
     auto byteData = static_cast<std::byte*>(stageBuffer.info.pMappedData);
 
     for (auto& u : uploads) {
@@ -38,10 +38,11 @@ AllocatedBuffer Uploader::Upload(vk::CommandBuffer cmbBuffer) {
     return stageBuffer;
 }
 
-AllocatedBuffer CreateAllocatedBuffer(VmaAllocator allocator, size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage) {
+AllocatedBuffer CreateAllocatedBuffer(vk::Device device, VmaAllocator allocator, size_t allocSize, vk::Flags<vk::BufferUsageFlagBits> usage, VmaMemoryUsage memUsage) {
+    const auto use = usage | vk::BufferUsageFlagBits::eShaderDeviceAddress;
     VkBufferCreateInfo bufferInfo = vk::BufferCreateInfo()
         .setSize(allocSize)
-        .setUsage(usage);
+        .setUsage(use);
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
@@ -52,5 +53,9 @@ AllocatedBuffer CreateAllocatedBuffer(VmaAllocator allocator, size_t allocSize, 
     vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &buffer, &allocBuffer.alloc, &allocBuffer.info);
 
     allocBuffer.buffer = vk::Buffer(buffer);
+    auto addressInfo = vk::BufferDeviceAddressInfo()
+        .setBuffer(allocBuffer.buffer);
+    allocBuffer.address = device.getBufferAddress(addressInfo);
+    allocBuffer.size = allocSize;
     return allocBuffer;
 }

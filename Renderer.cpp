@@ -16,7 +16,6 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
     LoadModels_Init();
     SpawnLights_Init();
-    UploadAll_Init();
 
     CreateDescSets_Init();
     CreatePipeline();
@@ -27,7 +26,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
 void Renderer::Draw() {
     uint32_t imageIndex;
-    if (!AquireImageIndex(imageIndex)) return;
+    if (!AcquireImageIndex(imageIndex)) return;
 
     double frameTime = frameTimer.GetMilliseconds();
     if (drawUI) ImGui_Draw(frameTime);
@@ -224,18 +223,18 @@ std::array<glm::vec4, 6> ExtractFrustum(glm::mat4 mat) {
     bottom[3] = mat[3].w + mat[3].y;
 
     std::array<glm::vec4, 6> planes = { near, far, right, left, top, bottom };
-    for (size_t i = 0; i < planes.size(); i++) {
-        const auto lenght = sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
-        planes[i] /= lenght;
+    for (auto & plane : planes) {
+        const auto length = sqrtf(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
+        plane /= length;
     }
 
     return planes;
 }
-void Renderer::Move(float forward, float sideward) {
+void Renderer::Move(const float forward, const float sideward) {
     position += forward * direction;
     position -= glm::normalize(glm::cross(direction, glm::vec3(0, 1, 0))) * sideward;
 }
-void Renderer::Teleport(glm::vec3 pos, glm::vec3 direction) {
+void Renderer::Teleport(const glm::vec3 pos, const glm::vec3 dir) {
     position = pos;
     yaw = -90;
     pitch = 0;
@@ -246,11 +245,11 @@ void Renderer::BuildGlobalTransform() {
     direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
     direction = glm::normalize(direction);
 
-    const float ratio = (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height;
-    const float near  = 0.01f;
-    const float far   = 4000.0f;
-    const float fovY  = 90.0f;
-    const auto up     = glm::vec3(0, 1.0f, 0);
+    const float ratio = static_cast<float>(swapchain.renderExtend.width) / static_cast<float>(swapchain.renderExtend.height);
+    constexpr float near  = 0.01f;
+    constexpr float far   = 4000.0f;
+    constexpr float fovY  = 90.0f;
+    constexpr auto up     = glm::vec3(0, 1.0f, 0);
 
     view = glm::lookAt(position, position + direction, up);
 
@@ -265,8 +264,8 @@ void Renderer::BuildGlobalTransform() {
     }
 }
 
-bool Renderer::AquireImageIndex(uint32_t& index) {
-    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphores[currentFrame], nullptr);
+bool Renderer::AcquireImageIndex(uint32_t& index) {
+    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAcquiredSemaphores[currentFrame], nullptr);
     const auto imageResult = imageNext.result;
     index = imageNext.value;
     if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
@@ -306,7 +305,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
     auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
         .setMaxDepth(1.0f)
-        .setHeight(-(float)swapchain.renderExtend.height)
+        .setHeight(-static_cast<float>(swapchain.renderExtend.height))
         .setWidth(swapchain.renderExtend.width)
         .setX(0)
         .setY(swapchain.renderExtend.height);
@@ -337,7 +336,7 @@ void Renderer::SubmitImmediate(const std::function<void()>& func) {
     vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
         .setCommandBuffers(graphCompCmdBuffers);
     graphicsComputeQueue.submit(graphicsSubmitInfo, immediateFence);
-    device.device.waitForFences(immediateFence, false, UINT64_MAX);
+    {const auto res = device.device.waitForFences(immediateFence, false, UINT64_MAX);}
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
@@ -350,7 +349,7 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     vk::PipelineStageFlags graphicsWaitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
         .setCommandBuffers(graphCompCmdBuffers[currentFrame])
-        .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
+        .setWaitSemaphores(imageAcquiredSemaphores[currentFrame])
         .setSignalSemaphores(renderFinishedSemaphores[imageIndex])
         .setWaitDstStageMask(graphicsWaitStage);
     graphicsComputeQueue.submit(graphicsSubmitInfo, inFlightFences[currentFrame]);
@@ -361,14 +360,14 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        graphicsComputeQueue.presentKHR(info);
+        const auto res = graphicsComputeQueue.presentKHR(info);
     }
     catch (std::exception e) {
         requestNewSwapchain = true;
     }
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
-        device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+        {const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
         device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
@@ -378,7 +377,7 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     }
 
     currentFrame = (currentFrame + 1) % 2;
-    device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+    {const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
     device.device.resetFences(inFlightFences[currentFrame]);
     if (!stageBuffers[currentFrame].isEmpty)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
@@ -439,9 +438,9 @@ void Renderer::CreatePipeline() {
 }
 void Renderer::CreateFencesAndSemaphores() {
     auto semaphoreInfo = vk::SemaphoreCreateInfo();
-    imageAquiredSemaphores  [0] = device.device.createSemaphore(semaphoreInfo);
+    imageAcquiredSemaphores  [0] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[0] = device.device.createSemaphore(semaphoreInfo);
-    imageAquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
+    imageAcquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[1] = device.device.createSemaphore(semaphoreInfo);
     
     inFlightFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
@@ -511,7 +510,7 @@ std::vector<T> ReadAttribute(const fastgltf::Asset& asset, const fastgltf::Primi
     std::memcpy(out.data(), data.bytes.data() + bufferView.byteOffset + acr.byteOffset, acr.count * sizeof(T));
     return out;
 }
-uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures) {
+uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs) {
     const auto& texture          = asset.textures[imageInfo.textureIndex];
     const auto& image            = asset.images[texture.imageIndex.value()];
     const auto& sourceBufferView = get<fastgltf::sources::BufferView>(image.data);
@@ -522,11 +521,11 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
 
     std::vector<unsigned char> imageChars(imageBufferView.byteLength);
     std::memcpy(imageChars.data(), imageData.bytes.data() + imageBufferView.byteOffset, imageBufferView.byteLength);
-    unsigned char* pixels;
     if (sourceBufferView.mimeType == fastgltf::MimeType::JPEG || sourceBufferView.mimeType == fastgltf::MimeType::PNG) {
         int width, height, comp;
-        pixels = stbi_load_from_memory(imageChars.data(), imageBufferView.byteLength, &width, &height, &comp, STBI_rgb_alpha);
-        textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) }, vk::ImageUsageFlagBits::eSampled));
+        unsigned char *pixels = stbi_load_from_memory(imageChars.data(), imageBufferView.byteLength, &width, &height, &comp,
+                                                      STBI_rgb_alpha);
+        txtrs.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) }, vk::ImageUsageFlagBits::eSampled));
         stbi_image_free(pixels);
     }
     else if (sourceBufferView.mimeType == fastgltf::MimeType::KTX2) {
@@ -541,7 +540,7 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
     }
     else
         return 0;
-    return textures.size() - 1;
+    return txtrs.size() - 1;
 }
 void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices, std::vector<float>& positions) {
     std::vector<uint32_t> remap(indices.size());
@@ -585,7 +584,7 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to open file." << "\n";
     parts.Reset();
-    auto gltf = parser.loadGltf(data.get(), path.parent_path(), fastgltf::Options::LoadGLBBuffers);
+    auto gltf = parser.loadGltf(data.get(), path.parent_path());
     if (auto error = gltf.error(); error != fastgltf::Error::None) {
         std::cout << fastgltf::getErrorMessage(error) << "\n";
         throw;
@@ -648,26 +647,26 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     std::vector<uint32_t> materialIDs;
     std::vector<MaterialIndexGroup> matIndexGroups;
     for (const auto& material : asset.materials) {
-        MaterialIndexGroup materialIndices;
+        MaterialIndexGroup matIndices;
         const auto& pbrData = material.pbrData;
 
         if (pbrData.baseColorTexture.has_value())
-            materialIndices.diffuse = ParseGLTFImage(pbrData.baseColorTexture.value(), asset, textures);
+            matIndices.diffuse = ParseGLTFImage(pbrData.baseColorTexture.value(), asset, textures);
         else
-            materialIndices.diffuse = 0;
+            matIndices.diffuse = 0;
 
         if (pbrData.metallicRoughnessTexture.has_value())
-            materialIndices.metallicRoughness = ParseGLTFImage(pbrData.metallicRoughnessTexture.value(), asset, textures);
+            matIndices.metallicRoughness = ParseGLTFImage(pbrData.metallicRoughnessTexture.value(), asset, textures);
         else
-            materialIndices.metallicRoughness = 1;
+            matIndices.metallicRoughness = 1;
 
         if (material.emissiveTexture.has_value())
-            materialIndices.emissive = ParseGLTFImage(material.emissiveTexture.value(), asset, textures);
+            matIndices.emissive = ParseGLTFImage(material.emissiveTexture.value(), asset, textures);
         else
-            materialIndices.emissive = 1;
+            matIndices.emissive = 1;
 
         materialIDs.emplace_back(materialIndexGroups.size());
-        materialIndexGroups.emplace_back(materialIndices);
+        materialIndexGroups.emplace_back(matIndices);
     }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to load materials." << "\n";
     parts.Reset();
@@ -742,17 +741,17 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
 void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions, 
     std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, uint32_t meshID) {
     // TODO: Lower max values when mesh has fewer primitives.
-    const size_t maxVertices = 64;
-    const size_t maxTriangles = 124;
-    const float  coneWeight = 0.25f;
+    constexpr size_t maxVertices = 64;
+    constexpr size_t maxTriangles = 124;
+    constexpr float  coneWeight = 0.25f;
 
-    size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
+    const size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
     meshlets.resize(maxMeshlets);
     vertices.resize(maxMeshlets * maxVertices);
     triangles.resize(maxMeshlets * maxTriangles * 3);
 
     const size_t vertexCount = positions.size() / 3;
-    size_t meshletCount = meshopt_buildMeshlets(&meshlets[0], &vertices[0], &triangles[0],
+    const size_t meshletCount = meshopt_buildMeshlets(&meshlets[0], &vertices[0], &triangles[0],
         indices.data(), indices.size(), positions.data(), vertexCount, sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
 
     const meshopt_Meshlet& lastElement = meshlets[meshletCount - 1];
@@ -812,127 +811,7 @@ void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positio
     std::memcpy(&meshletBounds[meshletBounds.size() - boundsLocal.size()], boundsLocal.data(), sizeof(MeshletBounds) * boundsLocal.size());
 }
 
-template<typename T>
-GPUBuffer Renderer::UploadData(std::span<T> data) {
-    const auto size = sizeof(T) * data.size();
-
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    auto stageBuffer = CreateAllocatedBuffer(allocator, size,
-        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, data.data(), size);
-
-    std::function<void()> func = [&]() {
-        auto region = vk::BufferCopy()
-            .setSize(size);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-        };
-    SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return GPUBuffer{ buffer.buffer, device.device.getBufferAddress(addressInfo), buffer.alloc, buffer.info };
-}
-template<typename T>
-GPUBuffer Renderer::UploadData(T&& data) {
-    const auto size = sizeof(T);
-
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    auto stageBuffer = CreateAllocatedBuffer(allocator, size,
-        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, &data, size);
-
-    std::function<void()> func = [&]() {
-        auto region = vk::BufferCopy()
-            .setSize(size);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-        };
-    SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
-}
-
-GPUBuffer Renderer::CreateEmptyBuffer(size_t size) {
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    return GPUBuffer{ buffer.buffer, device.device.getBufferAddress(addressInfo), buffer.alloc, buffer.info };
-}
-
-template<typename T>
-void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset) {
-    const auto size = sizeof(T) * data.size();
-
-    stageBuffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, data.data(), size);
-
-    auto region = vk::BufferCopy()
-        .setSize(size)
-        .setDstOffset(offset);
-    graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-
-    //vmaDestroyBuffer(allocator, StageBuffer.buffer, StageBuffer.alloc);
-
-    auto barrier = vk::MemoryBarrier2()
-        .setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
-        .setSrcStageMask(vk::PipelineStageFlagBits2::eCopy)
-        .setDstStageMask(vk::PipelineStageFlagBits2::eCopy)
-        .setDstAccessMask(vk::AccessFlagBits2::eTransferWrite);
-    auto depInfo = vk::DependencyInfo()
-        .setMemoryBarriers(barrier);
-    graphCompCmdBuffers[currentFrame].pipelineBarrier2(depInfo);
-}
-GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
-    // GPU only buffers.
-    const size_t vertSize = vertices.size() * sizeof(Vertex);
-
-    auto vertBuffer = CreateAllocatedBuffer(allocator, vertSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst |
-        vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-
-    auto vertInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(vertBuffer.buffer);
-
-    GPUBuffer meshbuffer{
-        vertBuffer.buffer,
-        device.device.getBufferAddress(vertInfo),
-        vertBuffer.alloc,
-        vertBuffer.info
-    };
-
-    // Temporary CPU buffer for sending data.
-    AllocatedBuffer stageBuffer = CreateAllocatedBuffer(allocator, vertSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto data = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-
-    std::memcpy(data, vertices.data(), vertSize);
-
-    std::function<void()> func = [&]() {
-        auto vertRegion = vk::BufferCopy()
-            .setSize(vertSize);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer, vertRegion);
-    };
-    SubmitImmediate(func);
-
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return meshbuffer;
-}
-
-AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps) {
+AllocatedImage Renderer::CreateImage(const vk::Format format, const vk::Extent2D extend, const vk::ImageUsageFlags usage, const vk::ImageSubresourceRange &subresource, const bool makeMipmaps) const {
     uint32_t mipLevelCount = 1;
     if (makeMipmaps)
         mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
@@ -949,7 +828,7 @@ AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk:
         .setInitialLayout(vk::ImageLayout::eUndefined)
         .setImageType(vk::ImageType::e2D)
         .setTiling(vk::ImageTiling::eOptimal)
-        .setQueueFamilyIndices(0);
+        .setQueueFamilyIndices(nullptr);
     
     VmaAllocationCreateInfo imageAllocCreateInfo = {};
     imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
@@ -958,29 +837,27 @@ AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk:
     vk::Image image;
     VmaAllocation alloc;
     auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&image), &alloc, nullptr);
-    
-    vk::ImageView imageView;
-    imageView = CreateImageView(image, format, subresource);
+
+    const auto imageView = CreateImageView(image, format, subresource);
     
     return {image, imageView, nearestSampler, alloc};
 }
-void Renderer::CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
+void Renderer::CreateDepthStencilImage(const vk::Extent2D extend, const vk::ImageSubresourceRange &depthSubresource, const vk::ImageSubresourceRange &stencilSubresource) {
     // Get supported depth format.
-    std::array<vk::Format, 2> depthFormats = {
+    constexpr std::array<vk::Format, 2> depthFormats = {
         //vk::Format::eD32Sfloat,
         //vk::Format::eD32SfloatS8Uint,
         vk::Format::eD24UnormS8Uint
     };
-    vk::Format depthStencilFormat;
+    vk::Format depthStencilFormat{};
     for (auto& f : depthFormats) {
-        auto properties = device.physicalDevice.getFormatProperties(f);
-        if (properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+        if (auto properties = device.physicalDevice.getFormatProperties(f); properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
             depthStencilFormat = f;
             break;
         }
     }
 
-    uint32_t mipLevelCount = 1;
+    constexpr uint32_t mipLevelCount = 1;
     //if (makeMipmaps)
     //    mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
 
@@ -1013,12 +890,12 @@ void Renderer::CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresource
     depthImageView = CreateImageView(depthStencilImage, depthStencilFormat, depthSubresource);
     stencilImageView = CreateImageView(depthStencilImage, depthStencilFormat, stencilSubresource);
 }
-AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps) {
+AllocatedImage Renderer::CreateUploadImage(const void* data, const vk::Format format, const vk::Extent2D extend, const vk::ImageUsageFlags usage, const bool makeMipmaps) {
 
-    size_t size = extend.height * extend.width * 4;
-    auto upload = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    const size_t size = extend.height * extend.width * 4;
+    const auto upload = CreateAllocatedBuffer(device.device, allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
-    auto subresourceRange = vk::ImageSubresourceRange()
+    constexpr auto subresourceRange = vk::ImageSubresourceRange()
         .setAspectMask(vk::ImageAspectFlagBits::eColor)
         .setBaseMipLevel(0)
         .setBaseArrayLayer(0)
@@ -1027,17 +904,17 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
     
     std::memcpy(upload.info.pMappedData, data, size);
     auto image = CreateImage(format, extend, usage | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, subresourceRange, makeMipmaps);
-    
-    std::function<void()> func = [&]() {
+
+    const std::function<void()> func = [&]() {
         TransitionImage(graphCompCmdBuffers[currentFrame], image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
             vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eTransferWrite);
 
-        auto imageSubresource = vk::ImageSubresourceLayers()
+        constexpr auto imageSubresource = vk::ImageSubresourceLayers()
             .setAspectMask(vk::ImageAspectFlagBits::eColor)
             .setMipLevel(0)
             .setBaseArrayLayer(0)
             .setLayerCount(1);
-        auto imageCopy = vk::BufferImageCopy()
+        const auto imageCopy = vk::BufferImageCopy()
             .setBufferOffset(0)
             .setBufferImageHeight(0)
             .setBufferRowLength(0)
@@ -1054,7 +931,7 @@ AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Ex
     return image;
 }
 
-vk::ImageView Renderer::CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource) {
+vk::ImageView Renderer::CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource) const {
     auto identity = vk::ComponentSwizzle::eIdentity;
     auto compMapping = vk::ComponentMapping()
         .setA(identity)
@@ -1072,9 +949,9 @@ vk::ImageView Renderer::CreateImageView(const vk::Image& image, const vk::Format
 }
 
 void Renderer::CreateDebugTextures() {
-    uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
-    uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
-    uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
+    const uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+    const uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
+    const uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
     std::array<uint32_t, 16 * 16> checkerboardData;
     for (size_t x = 0; x < 16; x++)
         for (size_t y = 0; y < 16; y++)
@@ -1087,15 +964,15 @@ void Renderer::CreateDebugTextures() {
 
 // Temporary functions.
 void Renderer::PushConstant_Draw() {
-    SceneInfo sceneInfo;
+    SceneInfo sceneInfo{};
     sceneInfo.pointLightCount = pointLights.size();
     sceneInfo.spotLightCount  = spotLights.size();
     sceneInfo.dirLightCount   = dirLights.size();
     sceneInfo.meshCount    = meshViews.size();
-    sceneInfo.windowWidth  = (float)swapchain.renderExtend.width;
-    sceneInfo.windowHeight = (float)swapchain.renderExtend.height;
-    sceneInfo.tileCountX   = (uint32_t)((swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16);
-    sceneInfo.tileCountY   = (uint32_t)((swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16);
+    sceneInfo.windowWidth  = swapchain.renderExtend.width;
+    sceneInfo.windowHeight = swapchain.renderExtend.height;
+    sceneInfo.tileCountX   = (swapchain.renderExtend.width  + swapchain.renderExtend.width  % 16U) / 16U;
+    sceneInfo.tileCountY   = (swapchain.renderExtend.height + swapchain.renderExtend.height % 16U) / 16U;
 
     const auto uploadCamPos = glm::vec4(position, 1);
     const auto invProj = glm::inverse(proj);
@@ -1110,12 +987,12 @@ void Renderer::PushConstant_Draw() {
     uploader.StageUpload(projViewAddress, projViewTransform);
 
     if (!freezeFrustum) {
-        auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
+        const auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
         uploader.StageUpload(vertexBuffer.buffer, frustumSpan);
     }
-    stageBuffers[currentFrame] = uploader.Upload(graphCompCmdBuffers[currentFrame]);
+    stageBuffers[currentFrame] = uploader.Upload(graphCompCmdBuffers[currentFrame], device.device);
 
-    PushConstantData pushConstant{
+    const PushConstantData pushConstant{
         projViewAddress.address,
         viewAddress.address,
         invProjAddress.address,
@@ -1191,7 +1068,7 @@ void Renderer::LoadModels_Init() {
 }
 void Renderer::SpawnLights_Init() {
     // xyz: 20 0 25 "Centre"
-    const auto centre = glm::vec3(20, 0, 25);
+    constexpr auto centre = glm::vec3(20, 0, 25);
     std::random_device randomDevice;
     auto ranGen = std::mt19937(3529725061);
 
@@ -1238,46 +1115,36 @@ void Renderer::SpawnLights_Init() {
     dl.lightDir  = glm::vec4(-1.0f, -1.0f, -1.0f, 1);
     dl.lightType = 2;
     dirLights.emplace_back(dl);
-}
-void Renderer::UploadAll_Init() {
-    // Upload geometry and material indices.
-    if (vertices.size() > 0)
-        vertexBuffer = UploadMesh(vertices);
-    if (meshViews.size() > 0)
-        meshViewBufferAddress = UploadData<MeshView>(meshViews);
-    if (meshletBounds.size() > 0)
-        meshletBoundsAddress = UploadData<MeshletBounds>(meshletBounds);
-    if (meshlets.size() > 0)
-        meshletsAddress = UploadData<meshopt_Meshlet>(meshlets);
-    if (meshletVertices.size() > 0)
-        meshletVerticesAddress = UploadData<uint32_t>(meshletVertices);
-    if (meshletTriangles.size() > 0)
-        meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
 
-    projViewAddress  = CreateEmptyBuffer(sizeof(glm::mat4));
-    viewAddress      = CreateEmptyBuffer(sizeof(glm::mat4));
-    invProjAddress   = CreateEmptyBuffer(sizeof(glm::mat4));
-    invViewAddress   = CreateEmptyBuffer(sizeof(glm::mat4));
-    camPosAddress    = CreateEmptyBuffer(sizeof(glm::vec4));
-    sceneInfoAddress = CreateEmptyBuffer(sizeof(SceneInfo));
-
-    // Upload materials.
-    if (materialIndexGroups.size() > 0)
-        materialBufferAddress   = UploadData<MaterialIndexGroup>(materialIndexGroups);
-    
     lights.resize(pointLights.size() + spotLights.size() + dirLights.size());
     size_t lightMemIndex = 0;
-    if(pointLights.size() > 0)
+    if(!pointLights.empty())
         std::memcpy(&lights[lightMemIndex], pointLights.data(), pointLights.size() * sizeof(Light));
     lightMemIndex += pointLights.size();
-    if (spotLights.size() > 0)
+    if (!spotLights.empty())
         std::memcpy(&lights[lightMemIndex], spotLights.data(), spotLights.size() * sizeof(Light));
     lightMemIndex += spotLights.size();
-    if (dirLights.size() > 0)
+    if (!dirLights.empty())
         std::memcpy(&lights[lightMemIndex], dirLights.data(), dirLights.size() * sizeof(Light));
+}
+void Renderer::UploadAll_Init() {
+    constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
 
-    if (lights.size() > 0)
-        lightBufferAddress = UploadData<Light>(lights);
+    vertexBuffer            = CreateAllocatedBuffer(device.device, allocator, sizeof(Vertex) * vertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshViewBufferAddress   = CreateAllocatedBuffer(device.device, allocator, sizeof(MeshView) * meshViews.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletBoundsAddress    = CreateAllocatedBuffer(device.device, allocator, sizeof(MeshletBounds) * meshletBounds.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletsAddress         = CreateAllocatedBuffer(device.device, allocator, sizeof(meshopt_Meshlet) * meshlets.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletVerticesAddress  = CreateAllocatedBuffer(device.device, allocator, sizeof(uint32_t) * meshletVertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletTrianglesAddress = CreateAllocatedBuffer(device.device, allocator, sizeof(uint8_t) * meshletTriangles.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    lightBufferAddress      = CreateAllocatedBuffer(device.device, allocator, sizeof(Light) * lights.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    materialBufferAddress   = CreateAllocatedBuffer(device.device, allocator, sizeof(MaterialIndexGroup) * materialIndexGroups.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    projViewAddress  = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    viewAddress      = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    invProjAddress   = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    invViewAddress   = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    camPosAddress    = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    sceneInfoAddress = CreateAllocatedBuffer(device.device, allocator, sizeof(SceneInfo), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 }
 void Renderer::CreateSamplers_Init() {
     auto nearestSamplerInfo = vk::SamplerCreateInfo()
@@ -1286,24 +1153,19 @@ void Renderer::CreateSamplers_Init() {
     auto linearSamplerInfo = vk::SamplerCreateInfo()
         .setMagFilter(vk::Filter::eLinear)
         .setMinFilter(vk::Filter::eLinear);
-    auto nearLinSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eNearest)
-        .setMinFilter(vk::Filter::eNearest);
-    auto linNearSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear);
 
     nearestSampler = device.device.createSampler(nearestSamplerInfo);
     linearSampler = device.device.createSampler(linearSamplerInfo);
 }
 void Renderer::CreateDescSets_Init() {
+    UploadAll_Init();
     // Buffers.
     lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
-    lightIndicesBuffer  = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    lightIndicesViewSize = (lights.size() + 2) * sizeof(int);
-    lightIndicesViewBuffer = CreateAllocatedBuffer(allocator, lightIndicesViewSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = (sizeof(glm::vec4) * 6) * (std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
-    tileFrustumBuffer = CreateAllocatedBuffer(allocator, tileFrustumsSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
+    lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    tileFrustumsSize = sizeof(glm::vec4) * 6U * (std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
+    tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
     bufferAddresses.meshletsAddress = meshletsAddress.address;
@@ -1316,10 +1178,21 @@ void Renderer::CreateDescSets_Init() {
     bufferAddresses.materialBufferAddress = materialBufferAddress.address;
     bufferAddresses.lightBufferAddress = lightBufferAddress.address;
 
-    bufferAddressBuffer.buffer = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).buffer;
-    std::vector bufferAddressesVec = { bufferAddresses };
+    bufferAddressBuffer.buffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).buffer;
 
-    const std::function<void()> addresses = [&]() { UpdateBuffer<BufferAddresses>(bufferAddressBuffer, bufferAddressesVec, stageBuffers[0]); };
+    const std::function<void()> addresses = [&]() {
+        auto uploader = Uploader(allocator);
+        uploader.StageUpload(bufferAddressBuffer, bufferAddresses);
+        uploader.StageUpload(vertexBuffer, vertices);
+        uploader.StageUpload(meshViewBufferAddress, meshViews);
+        uploader.StageUpload(meshletBoundsAddress, meshletBounds);
+        uploader.StageUpload(meshletsAddress, meshlets);
+        uploader.StageUpload(meshletVerticesAddress, meshletVertices);
+        uploader.StageUpload(meshletTrianglesAddress, meshletTriangles);
+        uploader.StageUpload(materialBufferAddress, materialIndexGroups);
+        uploader.StageUpload(lightBufferAddress, lights);
+        stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
+    };
     SubmitImmediate(addresses);
     vmaDestroyBuffer(allocator, stageBuffers[0].buffer, stageBuffers[0].alloc);
 

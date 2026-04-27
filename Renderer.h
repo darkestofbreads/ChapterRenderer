@@ -133,7 +133,7 @@ struct BufferAddresses {
 	vk::DeviceAddress materialBufferAddress;
 	vk::DeviceAddress lightBufferAddress;
 };
-// Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
+// Push constants have a guaranteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
 	vk::DeviceAddress projView;
 	vk::DeviceAddress view;
@@ -184,8 +184,8 @@ private:
 
 	void SubmitAndPresent(uint32_t imageIndex);
 	void SubmitImmediate(const std::function<void()>& func);
-	void Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea);
-	bool AquireImageIndex(uint32_t& index);
+	void Begin(uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea);
+	bool AcquireImageIndex(uint32_t& index);
 
 	bool doVsync = true;
 	bool requestNewSwapchain = false;
@@ -202,12 +202,11 @@ private:
 	void CreateFencesAndSemaphores();
 	void InitMainObjects(SDL_Window* window, std::atomic<bool>* ready);
 
-	GPUBuffer UploadMesh(std::span<Vertex> vertices);
-	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
+	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs);
 
-	AllocatedImage CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps = false);
-	AllocatedImage CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
-	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource);
+	AllocatedImage CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, const vk::ImageSubresourceRange &subresource, bool makeMipmaps = false) const;
+	AllocatedImage CreateUploadImage(const void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
+	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource) const;
 
 	// Textures.
 	void CreateDebugTextures();
@@ -232,7 +231,7 @@ private:
 	size_t tileAABBsSize;
 
 	// Buffer addresses.
-	GPUBuffer bufferAddressBuffer;
+	AllocatedBuffer bufferAddressBuffer;
 	BufferAddresses bufferAddresses;
 
 	// Descriptor sets.
@@ -241,34 +240,25 @@ private:
 	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
-	GPUBuffer vertexBuffer;
+	AllocatedBuffer vertexBuffer;
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator;
 
-	GPUBuffer CreateEmptyBuffer(size_t size);
-	template<typename T>
-	GPUBuffer UploadData(std::span<T> data);
-	template<typename T>
-	GPUBuffer UploadData(T&& data);
+	AllocatedBuffer meshletsAddress;
+	AllocatedBuffer meshletBoundsAddress;
+	AllocatedBuffer meshletVerticesAddress;
+	AllocatedBuffer meshletTrianglesAddress;
 
-	template<typename T>
-	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset = 0);
+	AllocatedBuffer meshViewBufferAddress;
+	AllocatedBuffer materialBufferAddress;
+	AllocatedBuffer lightBufferAddress;
 
-	GPUBuffer meshletsAddress;
-	GPUBuffer meshletBoundsAddress;
-	GPUBuffer meshletVerticesAddress;
-	GPUBuffer meshletTrianglesAddress;
-
-	GPUBuffer meshViewBufferAddress;
-	GPUBuffer materialBufferAddress;
-	GPUBuffer lightBufferAddress;
-
-	GPUBuffer projViewAddress;
-	GPUBuffer viewAddress;
-	GPUBuffer invProjAddress;
-	GPUBuffer invViewAddress;
-	GPUBuffer camPosAddress;
-	GPUBuffer sceneInfoAddress;
+	AllocatedBuffer projViewAddress;
+	AllocatedBuffer viewAddress;
+	AllocatedBuffer invProjAddress;
+	AllocatedBuffer invViewAddress;
+	AllocatedBuffer camPosAddress;
+	AllocatedBuffer sceneInfoAddress;
 
 	glm::mat4 projViewTransform;
 	glm::mat4 view;
@@ -287,7 +277,7 @@ private:
 	vk::ImageSubresourceRange depthSubresourceRange;
 	vk::ImageSubresourceRange stencilSubresourceRange;
 	vk::ImageSubresourceRange depthStencilSubresourceRange;
-	void CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
+	void CreateDepthStencilImage(vk::Extent2D extend, const vk::ImageSubresourceRange &depthSubresource, const vk::ImageSubresourceRange &stencilSubresource);
 
 	Descriptors descriptors;
 	Instance instance;
@@ -301,7 +291,7 @@ private:
 
 	uint32_t currentFrame = 0;
 	std::array<vk::CommandBuffer, MAX_FRAMES_IN_FLIGHT> graphCompCmdBuffers;
-	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> imageAquiredSemaphores;
+	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> imageAcquiredSemaphores;
 	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores;
 	std::array <vk::Fence, MAX_FRAMES_IN_FLIGHT> inFlightFences;
 	std::array <AllocatedBuffer, MAX_FRAMES_IN_FLIGHT> stageBuffers;
