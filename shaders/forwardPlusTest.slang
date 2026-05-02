@@ -112,6 +112,12 @@ void meshMain(
 
 [[vk::binding(0, 0)]] uniform Sampler2D textures[];
 [[vk::binding(2, 0)]] StructuredBuffer<int> lightIndices;
+[[vk::binding(5, 0)]] Sampler2D dirShadowMap;
+
+struct mat4{
+    float4x4 mat;
+};
+[[vk::binding(6, 0)]] ConstantBuffer<mat4> dirShadowTrans;
 
 [shader("pixel")]
 float4 fragMain(VertexOutput input, uniform PushConstant pc)
@@ -151,16 +157,29 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
         fragment += CalcSpotLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }
 
+    // Directional lights.
     var index = 0U;
     var limit = pc.sceneInfo.pointLightCount;
     index = pc.sceneInfo.spotLightCount;
     limit += pc.sceneInfo.spotLightCount;
-
     index += pc.sceneInfo.pointLightCount;
-    for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
-        var light = pc.lights[index];
-        light.lightDir = mul(light.lightDir, normalTransform);
-    	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
+
+    // Directional shadow map stuff.
+    let lightFragPos = mul(input.viewPos, dirShadowTrans.mat);
+    var dirLightCoords = lightFragPos.xyz / lightFragPos.w;
+
+    if(dirLightCoords.z >= 0.0)
+    {
+        dirLightCoords.xy = (dirLightCoords.xy + 1.0) / 2.0;
+        var closestDepth = dirShadowMap.Sample(dirLightCoords.xy).r;
+        if(dirLightCoords.z < closestDepth)
+        {
+            for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
+                var light = pc.lights[index];
+                light.lightDir = mul(light.lightDir, normalTransform);
+            	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
+            }
+        }
     }
 
     // Gamma correction.

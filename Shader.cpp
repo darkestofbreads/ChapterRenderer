@@ -1,10 +1,9 @@
-#pragma once
 #include "Shader.h"
 
 template<class T>
 std::vector<T> ReadShaderFile(const char* fileName) {
-    std::ifstream shader((std::string)(fileName), std::ios::ate | std::ios::binary);
-    size_t size = static_cast<size_t>(shader.tellg());
+    std::ifstream shader(static_cast<std::string>(fileName), std::ios::ate | std::ios::binary);
+    const size_t size = static_cast<size_t>(shader.tellg());
 
     std::vector<T> data( size / (sizeof(T) / sizeof(char)) );
 
@@ -17,7 +16,7 @@ std::vector<T> ReadShaderFile(const char* fileName) {
 void DiagnoseSlang(slang::IBlob* diagnosticsBlob)
 {
     if (diagnosticsBlob != nullptr)
-        std::cout << (const char*)diagnosticsBlob->getBufferPointer() << std::endl;
+        std::cout << static_cast<const char *>(diagnosticsBlob->getBufferPointer()) << std::endl;
 }
 
 /*CumulativeOffset calculateCumulativeOffset(slang::ParameterCategory layoutUnit, AccessPath accessPath)
@@ -241,7 +240,7 @@ std::string CompileSlangToSPIRV(std::string slangName) {
     sessionDesc.compilerOptionEntries = options.data();
     sessionDesc.compilerOptionEntryCount = options.size();
 
-    const char* includePath = "shaders";
+    auto includePath = "shaders";
     auto includePaths = &includePath;
     sessionDesc.searchPaths = includePaths;
     sessionDesc.searchPathCount = 1;
@@ -310,12 +309,12 @@ std::string CompileSlangToSPIRV(std::string slangName) {
     return spirvPath;
 }
 
-vk::ShaderEXT MakeSingleShaderObjSlang(vk::Device& device,
-    const char* slangFileName, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage, std::string entryPoint) {
-    auto path = CompileSlangToSPIRV(slangFileName);
+vk::ShaderEXT MakeSingleShaderObjSlang(const vk::Device& device,
+    const char* slangFileName, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, const vk::ShaderStageFlagBits stage, const std::string& entryPoint) {
+    const auto path = CompileSlangToSPIRV(slangFileName);
     std::vector<uint32_t> data = ReadShaderFile<uint32_t>(path.c_str());
 
-    auto info = vk::ShaderCreateInfoEXT()
+    const auto info = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eDispatchBase)
         .setStage(stage)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -324,7 +323,7 @@ vk::ShaderEXT MakeSingleShaderObjSlang(vk::Device& device,
         .setPushConstantRanges(range)
         .setSetLayouts(setLayout);
 
-    auto computeShader = device.createShaderEXT(info, nullptr, dl);
+    const auto computeShader = device.createShaderEXT(info, nullptr, dl);
     if (computeShader.result != vk::Result::eSuccess) {
         std::cout << "Failed to create shader\n";
         throw std::runtime_error("Failed to create shader");
@@ -333,11 +332,11 @@ vk::ShaderEXT MakeSingleShaderObjSlang(vk::Device& device,
     return computeShader.value;
 }
 
-vk::ShaderEXT MakeSingleShaderObj(vk::Device& device,
-    const char* shaderFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage) {
+vk::ShaderEXT MakeSingleShaderObj(const vk::Device& device,
+    const char* shaderFileNameSPIRV, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, const vk::ShaderStageFlagBits stage) {
     std::vector<uint32_t> data = ReadShaderFile<uint32_t>(shaderFileNameSPIRV);
 
-    auto computeInfo = vk::ShaderCreateInfoEXT()
+    const auto computeInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eDispatchBase)
         .setStage(stage)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -355,11 +354,11 @@ vk::ShaderEXT MakeSingleShaderObj(vk::Device& device,
     return computeShader.value;
 }
 
-vk::ShaderEXT MakeComputeShaderObject(vk::Device& device, const char* computeShaderFileNameSPIRV,
-    vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
+vk::ShaderEXT MakeComputeShaderObject(const vk::Device& device, const char* computeShaderFileNameSPIRV,
+    const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
     std::vector<uint32_t> computeData = ReadShaderFile<uint32_t>(computeShaderFileNameSPIRV);
 
-    auto computeInfo = vk::ShaderCreateInfoEXT()
+    const auto computeInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eDispatchBase)
         .setStage(vk::ShaderStageFlagBits::eCompute)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -368,7 +367,7 @@ vk::ShaderEXT MakeComputeShaderObject(vk::Device& device, const char* computeSha
         .setPushConstantRanges(range)
         .setSetLayouts(setLayout);
 
-    auto computeShader = device.createShaderEXT(computeInfo, nullptr, dl);
+    const auto computeShader = device.createShaderEXT(computeInfo, nullptr, dl);
     if (computeShader.result != vk::Result::eSuccess) {
         std::cout << "Failed to create compute shader\n";
         throw std::runtime_error("Failed to create compute shader");
@@ -377,12 +376,12 @@ vk::ShaderEXT MakeComputeShaderObject(vk::Device& device, const char* computeSha
     return computeShader.value;
 }
 
-vk::ShaderEXT MakeComputeShaderObjectSlang(vk::Device& device, const char* slangFileName,
-    vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
-    auto path = CompileSlangToSPIRV(slangFileName);
+vk::ShaderEXT MakeComputeShaderObjectSlang(const vk::Device& device, const char* slangFileName,
+    const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
+    const auto path = CompileSlangToSPIRV(slangFileName);
     std::vector<uint32_t> computeData = ReadShaderFile<uint32_t>(path.c_str());
 
-    auto computeInfo = vk::ShaderCreateInfoEXT()
+    const auto computeInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eDispatchBase)
         .setStage(vk::ShaderStageFlagBits::eCompute)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -391,7 +390,7 @@ vk::ShaderEXT MakeComputeShaderObjectSlang(vk::Device& device, const char* slang
         .setPushConstantRanges(range)
         .setSetLayouts(setLayout);
 
-    auto computeShader = device.createShaderEXT(computeInfo, nullptr, dl);
+    const auto computeShader = device.createShaderEXT(computeInfo, nullptr, dl);
     if (computeShader.result != vk::Result::eSuccess) {
         std::cout << "Failed to create compute shader\n";
         throw std::runtime_error("Failed to create compute shader");
@@ -400,12 +399,12 @@ vk::ShaderEXT MakeComputeShaderObjectSlang(vk::Device& device, const char* slang
     return computeShader.value;
 }
 
-std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(vk::Device& device,
-    const char* slangFileName, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
-    auto path = CompileSlangToSPIRV(slangFileName);
+std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(const vk::Device& device,
+    const char* slangFileName, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
+    const auto path = CompileSlangToSPIRV(slangFileName);
     std::vector<uint32_t> shaderData = ReadShaderFile<uint32_t>(path.c_str());
 
-    auto taskInfo = vk::ShaderCreateInfoEXT()
+    const auto taskInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eTaskEXT)
         .setNextStage(vk::ShaderStageFlagBits::eMeshEXT)
@@ -414,7 +413,7 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(vk::Device& device,
         .setPushConstantRanges(range)
         .setPName("taskMain")
         .setSetLayouts(setLayout);
-    auto meshInfo = vk::ShaderCreateInfoEXT()
+    const auto meshInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eMeshEXT)
         .setNextStage(vk::ShaderStageFlagBits::eFragment)
@@ -423,7 +422,7 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(vk::Device& device,
         .setPushConstantRanges(range)
         .setPName("meshMain")
         .setSetLayouts(setLayout);
-    auto fragmentInfo = vk::ShaderCreateInfoEXT()
+    const auto fragmentInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eFragment)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -451,22 +450,22 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(vk::Device& device,
     }
 
     std::vector<vk::ShaderEXT> shaders;
-    shaders.push_back(nullptr);
-    shaders.push_back(taskShader.value);
-    shaders.push_back(meshShader.value);
-    shaders.push_back(fragShader.value);
+    shaders.emplace_back(nullptr);
+    shaders.emplace_back(taskShader.value);
+    shaders.emplace_back(meshShader.value);
+    shaders.emplace_back(fragShader.value);
     return shaders;
 }
 
-std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
+std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(const vk::Device& device,
     const char* taskShaderFileNameSPIRV, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV,
-    vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
+    const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout) {
 
     std::vector<uint32_t> taskData = ReadShaderFile<uint32_t>(taskShaderFileNameSPIRV);
     std::vector<uint32_t> meshData = ReadShaderFile<uint32_t>(meshShaderFileNameSPIRV);
     std::vector<uint32_t> fragData = ReadShaderFile<uint32_t>(fragmentFileNameSPIRV);
 
-    auto taskInfo = vk::ShaderCreateInfoEXT()
+    const auto taskInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eTaskEXT)
         .setNextStage(vk::ShaderStageFlagBits::eMeshEXT)
@@ -475,7 +474,7 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
         .setPName("main")
         .setPushConstantRanges(range)
         .setSetLayouts(setLayout);
-    auto meshInfo = vk::ShaderCreateInfoEXT()
+    const auto meshInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eMeshEXT)
         .setNextStage(vk::ShaderStageFlagBits::eFragment)
@@ -484,7 +483,7 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
         .setPName("main")
         .setPushConstantRanges(range)
         .setSetLayouts(setLayout);
-    auto fragmentInfo = vk::ShaderCreateInfoEXT()
+    const auto fragmentInfo = vk::ShaderCreateInfoEXT()
         .setFlags(vk::ShaderCreateFlagBitsEXT::eLinkStage)
         .setStage(vk::ShaderStageFlagBits::eFragment)
         .setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
@@ -512,9 +511,9 @@ std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
     }
 
     std::vector<vk::ShaderEXT> shaders;
-    shaders.push_back(nullptr);
-    shaders.push_back(taskShader.value);
-    shaders.push_back(meshShader.value);
-    shaders.push_back(fragShader.value);
+    shaders.emplace_back(nullptr);
+    shaders.emplace_back(taskShader.value);
+    shaders.emplace_back(meshShader.value);
+    shaders.emplace_back(fragShader.value);
     return shaders;
 }

@@ -16,6 +16,7 @@ bool SphereInsideFrustum(Frustum f, Sphere s) {
     return true;
 }
 
+
 groupshared TaskShaderOutput payload;
 
 [shader("amplification")]
@@ -33,17 +34,17 @@ void taskMain(
     let view = pc.meshViews[bound.meshID];
 
     // Frustum culling against the meshlets sphere.
-    Frustum viewFrustum;
-    for (var i = 0; i < 6; i++)
-        viewFrustum.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
-    let boundingSphere = Sphere(bound.sphereCenter, bound.sphereRadius);
+    //Frustum viewFrustum;
+    //for (var i = 0; i < 6; i++)
+    //    viewFrustum.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
+    //let boundingSphere = Sphere(bound.sphereCenter, bound.sphereRadius);
 
-    if (!SphereInsideFrustum(viewFrustum, boundingSphere)) return;
+    //if (!SphereInsideFrustum(viewFrustum, boundingSphere)) return;
 
     // Backface culling against the meshlets cone.
     let coneTip = bound.coneTip;
     let coneDir = bound.coneDirection;
-    if (dot(normalize(coneTip - pc.camPos.xyz), coneDir) >= bound.coneCutoff && view.flags > 0) return;
+    //if (dot(normalize(coneTip - pc.camPos.xyz), coneDir) >= bound.coneCutoff && view.flags > 0) return;
 
     DispatchMesh(meshlet.triangleCount, 1, 1, payload);
 }
@@ -56,6 +57,11 @@ struct VertexOutput
     float2 uv;
     uint materialIndex;
 };
+
+struct mat4{
+    float4x4 mat;
+};
+[[vk::binding(6, 0)]] ConstantBuffer<mat4> dirShadowTrans;
 
 [shader("mesh")]
 [outputtopology("triangle")]
@@ -85,7 +91,7 @@ void meshMain(
     let vertex1 = pc.vertices[index1];
     let vertex2 = pc.vertices[index2];
 
-    let projView = *pc.projView;
+    let projView = dirShadowTrans.mat;
     vertices[0].position = mul(float4(vertex0.position, 1.0), projView);
     vertices[1].position = mul(float4(vertex1.position, 1.0), projView);
     vertices[2].position = mul(float4(vertex2.position, 1.0), projView);

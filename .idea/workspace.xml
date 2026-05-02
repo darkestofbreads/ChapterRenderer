@@ -34,15 +34,27 @@
   <component name="CMakeSettings">
     <configurations>
       <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
+      <configuration PROFILE_NAME="Release" ENABLED="true" CONFIG_NAME="Release" />
     </configurations>
   </component>
   <component name="CargoProjects">
     <cargoProject FILE="$PROJECT_DIR$/extern/fastgltf/tests/gltf-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Improv: Ditch prebuilt Slang binaries in favour of using Slang out of the Vulkan SDK #25">
+    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Fix: sdl being added via faulty directory name">
+      <change afterPath="$PROJECT_DIR$/shaders/shadowMapping.slang" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Shader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Shader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Shader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Shader.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Uploader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Uploader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shaders/depthprepass.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/depthprepass.slang" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shaders/forwardPlusTest.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/forwardPlusTest.slang" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shaders/lightCullingTest.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/lightCullingTest.slang" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/shaders/lightCullingView.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/lightCullingView.slang" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -75,6 +87,9 @@
     &quot;accountId&quot;: &quot;d49e94c7-782b-4891-8dd7-72ee395682e8&quot;
   }
 }</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://E:/VulkanSDK/1.4.341.1/Include/vulkan/vulkan_handles.hpp" root0="SKIP_HIGHLIGHTING" />
+  </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="F9jxN0pd" />
   </component>
@@ -117,12 +132,22 @@
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
     &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
     &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;Console&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;CMakeSettings&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
   <component name="RunManager" selected="CMake Application.ChapterOne">
     <configuration name="ChapterOne" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="ChapterOne" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="ChapterOne" RUN_TARGET_NAME="ChapterOne">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="ChapterOne" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="ChapterOne" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="ChapterOne" RUN_TARGET_NAME="ChapterOne">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="CopyAssets" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="CopyAssets" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -137,7 +162,22 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
+    <configuration name="CopyShaders" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="CopyShaders" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="SDL3-shared" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="SDL3-shared" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="SDL3-shared" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="SDL3-shared" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="SDL3_test" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="SDL3_test" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -152,12 +192,22 @@
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
-    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+    <configuration name="SDL_uclibc" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="SDL_uclibc" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
     <configuration name="fastgltf" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="fastgltf" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="fastgltf" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="fastgltf" CONFIG_NAME="Debug">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="meshoptimizer" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="meshoptimizer" CONFIG_NAME="Debug">
       <method v="2">
         <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
@@ -192,7 +242,11 @@
       <workItem from="1777234300180" duration="9383000" />
       <workItem from="1777300341356" duration="12688000" />
       <workItem from="1777316403653" duration="3292000" />
-      <workItem from="1777319717050" duration="2713000" />
+      <workItem from="1777319717050" duration="4397000" />
+      <workItem from="1777475127804" duration="6277000" />
+      <workItem from="1777484733810" duration="33101000" />
+      <workItem from="1777561087729" duration="1316000" />
+      <workItem from="1777728223278" duration="8749000" />
     </task>
     <task id="LOCAL-00001" summary="Fixes for CLion, swizzle seems to be broken">
       <option name="closed" value="true" />
@@ -218,7 +272,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777321911894</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="Fix: sdl being added via faulty directory name">
+      <option name="closed" value="true" />
+      <created>1777322757842</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1777322757842</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -245,7 +307,8 @@
     <MESSAGE value="Fixes for CLion, swizzle seems to be broken" />
     <MESSAGE value="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable" />
     <MESSAGE value="Improv: Ditch prebuilt Slang binaries in favour of using Slang out of the Vulkan SDK #25" />
-    <option name="LAST_COMMIT_MESSAGE" value="Improv: Ditch prebuilt Slang binaries in favour of using Slang out of the Vulkan SDK #25" />
+    <MESSAGE value="Fix: sdl being added via faulty directory name" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fix: sdl being added via faulty directory name" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

@@ -45,4 +45,19 @@ if(WIN32)
     configure_file($ENV{VULKAN_SDK}/Bin/slang.dll ${CMAKE_BINARY_DIR}/slang.dll COPYONLY)
 endif()
 
+if(WIN32 AND MINGW)
+    get_filename_component(MINGW_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
+
+    set(MINGW_DLLS
+        libgcc_s_seh-1.dll
+        libstdc++-6.dll
+        libwinpthread-1.dll
+    )
+
+    foreach(DLL ${MINGW_DLLS})
+        configure_file(${MINGW_BIN_DIR}/${DLL} ${CMAKE_BINARY_DIR}/${DLL} COPYONLY)
+    endforeach()
+
+endif()
+
 set_property(TARGET ChapterOne PROPERTY CXX_STANDARD 20)

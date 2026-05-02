@@ -1,7 +1,7 @@
 #include "common.slang"
 
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
-[[vk::binding(5, 0)]] RWStructuredBuffer<int> lightIndicesInView;
+[[vk::binding(7, 0)]] RWStructuredBuffer<int> lightIndicesInView;
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
