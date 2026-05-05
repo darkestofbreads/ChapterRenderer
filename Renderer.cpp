@@ -971,14 +971,14 @@ void Renderer::LoadModels_Init() {
                 auto sponzaTrans = glm::mat4(1.0f);
                 sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
                 sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-                LoadGLTF("assets/sponza.glb", uploader, sponzaTrans);
+                //LoadGLTF("assets/sponza.glb", uploader, sponzaTrans);
             }
         }
     }
 
     auto bistroTrans = glm::mat4(1.0f);
     bistroTrans = glm::scale(bistroTrans, glm::vec3(0.001f));
-    //LoadGLTF("assets/amazon_lumberyard_bistro.glb", uploader, bistroTrans);
+    LoadGLTF("assets/Buggy.glb", uploader, bistroTrans);
 
     const std::function upload = [&] {
         stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
