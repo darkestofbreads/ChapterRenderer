@@ -41,20 +41,11 @@
     <cargoProject FILE="$PROJECT_DIR$/extern/fastgltf/tests/gltf-rs/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Fix: sdl being added via faulty directory name">
-      <change afterPath="$PROJECT_DIR$/shaders/shadowMapping.slang" afterDir="false" />
+    <list default="true" id="c596168b-2db3-42ec-a13a-5fa0fcb3591c" name="Changes" comment="Improv: ChapterOne should now run on linux x86">
+      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/CMakeLists.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Device.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Device.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Renderer.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Renderer.h" beforeDir="false" afterPath="$PROJECT_DIR$/Renderer.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Shader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Shader.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Shader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Shader.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Uploader.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Uploader.h" beforeDir="false" afterPath="$PROJECT_DIR$/Uploader.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shaders/depthprepass.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/depthprepass.slang" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shaders/forwardPlusTest.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/forwardPlusTest.slang" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shaders/lightCullingTest.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/lightCullingTest.slang" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/shaders/lightCullingView.slang" beforeDir="false" afterPath="$PROJECT_DIR$/shaders/lightCullingView.slang" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -88,7 +79,10 @@
   }
 }</component>
   <component name="HighlightingSettingsPerFile">
-    <setting file="file://E:/VulkanSDK/1.4.341.1/Include/vulkan/vulkan_handles.hpp" root0="SKIP_HIGHLIGHTING" />
+    <setting file="mock:///dummy.cpp" root0="SKIP_HIGHLIGHTING" />
+    <setting file="mock:///dummy.cpp" root0="SKIP_HIGHLIGHTING" />
+    <setting file="mock:///dummy.cpp" root0="SKIP_HIGHLIGHTING" />
+    <setting file="mock:///dummy.cpp" root0="SKIP_HIGHLIGHTING" />
   </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="F9jxN0pd" />
@@ -110,32 +104,35 @@
   <component name="ProjectViewState">
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ASKED_MARK_IGNORED_FILES_AS_EXCLUDED&quot;: &quot;true&quot;,
-    &quot;CMake Application.ChapterOne.executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.RadMigrateCodeStyle&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.west.config.association.type.startup.service&quot;: &quot;true&quot;,
-    &quot;SHARE_PROJECT_CONFIGURATION_FILES&quot;: &quot;true&quot;,
-    &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
-    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;shadow-maps&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
-    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;CMakeSettings&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ASKED_MARK_IGNORED_FILES_AS_EXCLUDED": "true",
+    "CMake Application.ChapterOne.executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.RadMigrateCodeStyle": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "RunOnceActivity.west.config.association.type.startup.service": "true",
+    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "shadow-maps",
+    "ignore.virus.scanning.warn.message": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "org.rust.first.attach.projects": "true",
+    "settings.editor.selected.configurable": "CMakeSettings",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RunManager" selected="CMake Application.ChapterOne">
     <configuration name="ChapterOne" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true" PROJECT_NAME="ChapterOne" TARGET_NAME="ChapterOne" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="ChapterOne" RUN_TARGET_NAME="ChapterOne">
       <method v="2">
@@ -247,6 +244,7 @@
       <workItem from="1777484733810" duration="33101000" />
       <workItem from="1777561087729" duration="1316000" />
       <workItem from="1777728223278" duration="8749000" />
+      <workItem from="1777992791399" duration="2148000" />
     </task>
     <task id="LOCAL-00001" summary="Fixes for CLion, swizzle seems to be broken">
       <option name="closed" value="true" />
@@ -280,7 +278,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777322757842</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="Improv: ChapterOne should now run on linux x86">
+      <option name="closed" value="true" />
+      <created>1777992480889</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1777992480889</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -290,7 +296,6 @@
     <isAutomaticCheckingOnLaunch value="false" />
     <isAutomaticFoundErrors value="true" />
     <isAutomaticReloadCMake value="true" />
-    <isAutomaticBootstrapAfterUpdate value="false" />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
     <option name="TAB_STATES">
@@ -308,7 +313,8 @@
     <MESSAGE value="Fix: Uploader now properly distinguishes between single data type and vector&#10;Improv: All buffers now use Uploader.h for transfers, removed redundant functions&#10;Improv: Added const and constexpr where applicable" />
     <MESSAGE value="Improv: Ditch prebuilt Slang binaries in favour of using Slang out of the Vulkan SDK #25" />
     <MESSAGE value="Fix: sdl being added via faulty directory name" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fix: sdl being added via faulty directory name" />
+    <MESSAGE value="Improv: ChapterOne should now run on linux x86" />
+    <option name="LAST_COMMIT_MESSAGE" value="Improv: ChapterOne should now run on linux x86" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
