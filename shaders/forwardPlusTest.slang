@@ -164,23 +164,22 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
     limit += pc.sceneInfo.spotLightCount;
     index += pc.sceneInfo.pointLightCount;
 
-    // Directional shadow map stuff.
-    let lightFragPos = mul(input.viewPos, dirShadowTrans.mat);
-    var dirLightCoords = lightFragPos.xyz / lightFragPos.w;
+    // Sample from shadow map.
+    let lightMat = mul(*pc.invView, dirShadowTrans.mat);
+    var lightFragPos = mul(input.viewPos, lightMat);
+    lightFragPos /= lightFragPos.w;
+    float closestDepth = 0;
+    lightFragPos.x = (lightFragPos.x + 1.0) / 2.0;
+    lightFragPos.y = 1.0 - (lightFragPos.y + 1.0) / 2.0;
+    closestDepth = dirShadowMap.Sample(lightFragPos.xy).r;
+    let bias = 0.00001;
 
-    if(dirLightCoords.z >= 0.0)
-    {
-        dirLightCoords.xy = (dirLightCoords.xy + 1.0) / 2.0;
-        var closestDepth = dirShadowMap.Sample(dirLightCoords.xy).r;
-        if(dirLightCoords.z < closestDepth)
-        {
-            for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
-                var light = pc.lights[index];
-                light.lightDir = mul(light.lightDir, normalTransform);
-            	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
-            }
+    if(lightFragPos.z >= closestDepth - bias)
+        for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
+            var light = pc.lights[index];
+            light.lightDir = mul(light.lightDir, normalTransform);
+        	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
         }
-    }
 
     // Gamma correction.
     fragment = fragment.xyz / (fragment.xyz + float3(1.0));

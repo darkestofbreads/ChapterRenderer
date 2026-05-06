@@ -85,6 +85,19 @@ void Renderer::Draw() {
         .setRenderArea(shadowArea)
         .setFlags(vk::RenderingFlags())
         .setLayerCount(1);
+        constexpr auto viewport = vk::Viewport()
+        .setMinDepth(0.0f)
+        .setMaxDepth(1.0f)
+        .setHeight(-static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setWidth(static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setX(0)
+        .setY(static_cast<float>(SHADOW_MAP_RESOLUTION));
+        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
+        constexpr auto scissor = vk::Rect2D()
+            .setExtent(vk::Extent2D{SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION})
+            .setOffset({ 0 ,0 });
+        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
+
         graphCompCmdBuffers[currentFrame].beginRendering(shadowRenderInfo);
         {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, shadowMapShaders, dldid);
@@ -105,6 +118,19 @@ void Renderer::Draw() {
     const auto shadowDependencyInfo = vk::DependencyInfo()
         .setImageMemoryBarriers(shadowBarrier);
     graphCompCmdBuffers[currentFrame].pipelineBarrier2(shadowDependencyInfo);
+
+    const auto viewport = vk::Viewport()
+        .setMinDepth(0.0f)
+        .setMaxDepth(1.0f)
+        .setHeight(-static_cast<float>(swapchain.renderExtend.height))
+        .setWidth(static_cast<float>(swapchain.renderExtend.width))
+        .setX(0)
+        .setY(static_cast<float>(swapchain.renderExtend.height));
+    graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
+    const auto scissor = vk::Rect2D()
+        .setExtent(swapchain.renderExtend)
+        .setOffset({ 0 ,0 });
+    graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
 
     // Depth prepass.
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
@@ -346,9 +372,9 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setMinDepth(0.0f)
         .setMaxDepth(1.0f)
         .setHeight(-static_cast<float>(swapchain.renderExtend.height))
-        .setWidth(swapchain.renderExtend.width)
+        .setWidth(static_cast<float>(swapchain.renderExtend.width))
         .setX(0)
-        .setY(swapchain.renderExtend.height);
+        .setY(static_cast<float>(swapchain.renderExtend.height));
     graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
     const auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
@@ -376,7 +402,7 @@ void Renderer::SubmitImmediate(const std::function<void()>& func) {
     const auto graphicsSubmitInfo = vk::SubmitInfo()
         .setCommandBuffers(graphCompCmdBuffers);
     graphicsComputeQueue.submit(graphicsSubmitInfo, immediateFence);
-    {const auto res = device.device.waitForFences(immediateFence, false, UINT64_MAX);}
+    {[[maybe_unused]]const auto res = device.device.waitForFences(immediateFence, false, UINT64_MAX);}
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
@@ -402,14 +428,14 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        const auto res = graphicsComputeQueue.presentKHR(info);
+        [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
     }
     catch ([[maybe_unused]] std::exception& e) {
         requestNewSwapchain = true;
     }
     if (requestNewSwapchain) {
         requestNewSwapchain = false;
-        {const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
+        {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
         device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
@@ -419,7 +445,7 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     }
 
     currentFrame = (currentFrame + 1) % 2;
-    {const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
+    {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
     device.device.resetFences(inFlightFences[currentFrame]);
     if (!stageBuffers[currentFrame].isEmpty)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
@@ -547,7 +573,7 @@ std::vector<T> ReadAttribute(const fastgltf::Asset& asset, const fastgltf::Primi
     std::memcpy(out.data(), data.bytes.data() + bufferView.byteOffset + acr.byteOffset, acr.count * sizeof(T));
     return out;
 }
-uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) {
+uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const {
     const auto& texture          = asset.textures[imageInfo.textureIndex];
     const auto& image            = asset.images[texture.imageIndex.value()];
     const auto& sourceBufferView = get<fastgltf::sources::BufferView>(image.data);
@@ -561,7 +587,7 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
     if (sourceBufferView.mimeType == fastgltf::MimeType::JPEG || sourceBufferView.mimeType == fastgltf::MimeType::PNG) {
         int width, height, comp;
         const std::shared_ptr<void> pixels(
-            stbi_load_from_memory(imageChars.data(), imageBufferView.byteLength, &width, &height, &comp, STBI_rgb_alpha),
+            stbi_load_from_memory(imageChars.data(), static_cast<int>(imageBufferView.byteLength), &width, &height, &comp, STBI_rgb_alpha),
             stbi_image_free
         );
 
@@ -587,8 +613,8 @@ void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices,
     std::vector<uint32_t> remap(indices.size());
     std::vector<uint32_t> newIndices(indices.size());
 
-    size_t oldVertCount = vertices.size();
-    size_t vertCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
+    const size_t oldVertCount = vertices.size();
+    const size_t vertCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
     std::vector<Vertex> newVertices(vertCount);
 
     meshopt_remapIndexBuffer(newIndices.data(), indices.data(), indices.size(), remap.data());
@@ -688,7 +714,7 @@ void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, g
     std::vector<uint32_t> materialIDs;
     std::vector<MaterialIndexGroup> matIndexGroups;
     for (const auto& material : asset.materials) {
-        MaterialIndexGroup matIndices;
+        MaterialIndexGroup matIndices{};
         const auto& pbrData = material.pbrData;
 
         if (pbrData.baseColorTexture.has_value())
@@ -715,7 +741,7 @@ void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, g
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
         for (const auto& primitive : mesh.primitives) {
-            MeshView meshView;
+            MeshView meshView{};
             meshView.start = vertices.size();
 
             std::vector<Vertex> verticesLocal;
@@ -993,7 +1019,7 @@ void Renderer::SpawnLights_Init() {
     // xyz: 20 0 25 "Centre"
     constexpr auto centre = glm::vec3(20, 0, 25);
     std::random_device randomDevice;
-    auto ranGen = std::mt19937(3529725061);
+    auto ranGen = std::mt19937(3529725061); //NOLINT
 
     std::uniform_int_distribution<int> posxzDistrib(-10, 60);
     std::uniform_int_distribution<int> posyDistrib(-10, 20);
@@ -1005,7 +1031,7 @@ void Renderer::SpawnLights_Init() {
 
         Light sl{};
         sl.pos         = pos;
-        sl.radius      = rangeDistrib(ranGen);
+        sl.radius      = static_cast<float>(rangeDistrib(ranGen));
         sl.lightDir    = glm::vec4(glm::normalize(dir), 1);
         sl.color       = glm::vec3(1);
         sl.falloff     = 0.0f;
@@ -1019,7 +1045,7 @@ void Renderer::SpawnLights_Init() {
 
         Light pl{};
         pl.pos = pos;
-        pl.radius = rangeDistrib(ranGen);
+        pl.radius = static_cast<float>(rangeDistrib(ranGen));
         pl.color = glm::vec3(colorDistrib(ranGen), colorDistrib(ranGen), colorDistrib(ranGen));
         pl.falloff = 0.0f;
         pl.lightType = 0;
@@ -1065,11 +1091,11 @@ void Renderer::CreateDescSets_Init() {
     constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
 
     // Buffers.
-    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16));
     lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
     lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = sizeof(glm::vec4) * 6U * (std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
+    tileFrustumsSize = sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
     tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
@@ -1104,7 +1130,7 @@ void Renderer::CreateDescSets_Init() {
 
     constexpr float near  = 0.01f;
     constexpr float far   = 4000.0f;
-    const auto dirOrtho = glm::ortho(-35.0f, 35.0f, -35.0f, 35.0f, far, near);
+    const auto dirOrtho = glm::orthoRH_ZO(-35.0f, 35.0f, -35.0f, 35.0f, near, far);
     const auto dirLightView = glm::lookAt(20.0f * glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     dirShadowTrans = dirOrtho * dirLightView;
 

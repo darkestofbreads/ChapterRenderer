@@ -230,7 +230,7 @@ private:
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
 
-	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader);
+	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const;
 	void LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
