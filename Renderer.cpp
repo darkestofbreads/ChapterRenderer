@@ -75,6 +75,8 @@ void Renderer::Draw() {
     graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eGreater);
+    graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::True);
+    graphCompCmdBuffers[currentFrame].setDepthBias(0.0f, 0.0f, -1.f);
 
     // Directional shadow map pass.
     {
@@ -119,6 +121,8 @@ void Renderer::Draw() {
         .setImageMemoryBarriers(shadowBarrier);
     graphCompCmdBuffers[currentFrame].pipelineBarrier2(shadowDependencyInfo);
 
+    // Depth prepass.
+    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     const auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
         .setMaxDepth(1.0f)
@@ -131,15 +135,12 @@ void Renderer::Draw() {
         .setExtent(swapchain.renderExtend)
         .setOffset({ 0 ,0 });
     graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
-
-    // Depth prepass.
-    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-    
+
         graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
         graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
     }
@@ -168,14 +169,14 @@ void Renderer::Draw() {
         }
 
         const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
-            .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
-            .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
-            .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
-            .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-            .setImage(depthImage.image)
-            .setSubresourceRange(depthStencilSubresourceRange);
+                        .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+                        .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+                        .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                        .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+                        .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+                        .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+                        .setImage(depthImage.image)
+                        .setSubresourceRange(depthStencilSubresourceRange);
         const auto depthToComputeDependencyInfo = vk::DependencyInfo()
             .setImageMemoryBarriers(depthToComputeBarrier);
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
@@ -1131,7 +1132,7 @@ void Renderer::CreateDescSets_Init() {
     constexpr float near  = 0.01f;
     constexpr float far   = 4000.0f;
     const auto dirOrtho = glm::orthoRH_ZO(-35.0f, 35.0f, -35.0f, 35.0f, near, far);
-    const auto dirLightView = glm::lookAt(20.0f * glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const auto dirLightView = glm::lookAt(10.0f * glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     dirShadowTrans = dirOrtho * dirLightView;
 
     auto uploader = Uploader(allocator);

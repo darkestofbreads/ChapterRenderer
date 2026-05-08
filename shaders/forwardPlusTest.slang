@@ -172,9 +172,8 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
     lightFragPos.x = (lightFragPos.x + 1.0) / 2.0;
     lightFragPos.y = 1.0 - (lightFragPos.y + 1.0) / 2.0;
     closestDepth = dirShadowMap.Sample(lightFragPos.xy).r;
-    let bias = 0.00001;
 
-    if(lightFragPos.z >= closestDepth - bias)
+    if(lightFragPos.z >= closestDepth)
         for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
             var light = pc.lights[index];
             light.lightDir = mul(light.lightDir, normalTransform);
