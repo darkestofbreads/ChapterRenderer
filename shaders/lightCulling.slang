@@ -4,6 +4,7 @@
 [[vk::binding(1, 0)]] Sampler2D depth;
 [[vk::binding(2, 0)]] RWStructuredBuffer<int> lightIndices;
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
+[[vk::binding(8, 0)]] RWStructuredBuffer<float> minMaxDepthPerTile;
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
@@ -98,11 +99,12 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 	float maxDepth = asfloat(maxDepthInt);
     float minDepthView = ClipToView(float4(0, 0, minDepth, 1), *pc.invProj).z;
     float maxDepthView = ClipToView(float4(0, 0, maxDepth, 1), *pc.invProj).z;
-    float nearClipView = ClipToView(float4(0, 0, 0, 1)       , *pc.invProj).z;
 
+    // For transparent surfaces.
     Plane minPlane;
     minPlane.normal = float3(0, 0, -1);
     minPlane.dist   = -minDepthView;
+    float nearClipView = ClipToView(float4(0, 0, 0, 1), *pc.invProj).z;
 
     // Compute tile AABB.
     if (cs.LocalInvocationIndex == 0) {

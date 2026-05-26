@@ -41,9 +41,9 @@ void Renderer::Draw() {
     PushConstant_Draw();
 
     // Fill screen tile frustum buffer if FOV or resolution changes.
+    const uint32_t lightCullX = (swapchain.renderExtend.width  + swapchain.renderExtend.width  % 16) / 16;
+    const uint32_t lightCullY = (swapchain.renderExtend.height + swapchain.renderExtend.height % 16) / 16;
     if (firstTime || requestNewSwapchain) {
-        uint32_t lightCullX = (swapchain.renderExtend.width + (swapchain.renderExtend.width % 16)) / 16;
-        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
@@ -51,98 +51,28 @@ void Renderer::Draw() {
         const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eTaskShaderEXT)
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(tileFrustumBuffer.buffer)
             .setSize(tileFrustumsSize);
 
-        const auto tileBarriers = { tileFrustumsBarrier };
         const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
-            .setBufferMemoryBarriers(tileBarriers);
+            .setBufferMemoryBarriers(tileFrustumsBarrier);
         
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
     }
 
-    const auto dirShadowMap = vk::RenderingAttachmentInfo()
-        .setLoadOp(vk::AttachmentLoadOp::eClear)
-        .setStoreOp(vk::AttachmentStoreOp::eStore)
-        .setClearValue(vk::ClearDepthStencilValue(0, 0))
-        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-        .setImageView(shadowMapImage.view)
-        .setResolveMode(vk::ResolveModeFlagBits::eNone)
-        .setResolveImageLayout(vk::ImageLayout::eUndefined);
-
     graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eGreater);
-    graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::True);
-    graphCompCmdBuffers[currentFrame].setDepthBias(0.0f, 0.0f, -1.f);
-
-    // Directional shadow map pass.
-    {
-        constexpr auto shadowArea = vk::Rect2D()
-        .setExtent(vk::Extent2D(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION));
-        const auto shadowRenderInfo = vk::RenderingInfo()
-        .setPDepthAttachment(&dirShadowMap)
-        .setRenderArea(shadowArea)
-        .setFlags(vk::RenderingFlags())
-        .setLayerCount(1);
-        constexpr auto viewport = vk::Viewport()
-        .setMinDepth(0.0f)
-        .setMaxDepth(1.0f)
-        .setHeight(-static_cast<float>(SHADOW_MAP_RESOLUTION))
-        .setWidth(static_cast<float>(SHADOW_MAP_RESOLUTION))
-        .setX(0)
-        .setY(static_cast<float>(SHADOW_MAP_RESOLUTION));
-        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
-        constexpr auto scissor = vk::Rect2D()
-            .setExtent(vk::Extent2D{SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION})
-            .setOffset({ 0 ,0 });
-        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
-
-        graphCompCmdBuffers[currentFrame].beginRendering(shadowRenderInfo);
-        {
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, shadowMapShaders, dldid);
-            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
-            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-        }
-        graphCompCmdBuffers[currentFrame].endRendering();
-    }
-    const auto shadowBarrier = vk::ImageMemoryBarrier2()
-        .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-        .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-        .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
-        .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
-        .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-        .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-        .setImage(shadowMapImage.image)
-        .setSubresourceRange(depthSubresourceRange);
-    const auto shadowDependencyInfo = vk::DependencyInfo()
-        .setImageMemoryBarriers(shadowBarrier);
-    graphCompCmdBuffers[currentFrame].pipelineBarrier2(shadowDependencyInfo);
 
     // Depth prepass.
     vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
-    const auto viewport = vk::Viewport()
-        .setMinDepth(0.0f)
-        .setMaxDepth(1.0f)
-        .setHeight(-static_cast<float>(swapchain.renderExtend.height))
-        .setWidth(static_cast<float>(swapchain.renderExtend.width))
-        .setX(0)
-        .setY(static_cast<float>(swapchain.renderExtend.height));
-    graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
-    const auto scissor = vk::Rect2D()
-        .setExtent(swapchain.renderExtend)
-        .setOffset({ 0 ,0 });
-    graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-
-        graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
-        graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
     }
     graphCompCmdBuffers[currentFrame].endRendering();
     renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
@@ -150,6 +80,46 @@ void Renderer::Draw() {
     // Light culling.
     if (doLightCulling) {
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+        // Calculate min and max depth
+        const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+            .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+            .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+            .setImage(depthImage.image)
+            .setSubresourceRange(depthStencilSubresourceRange);
+        const auto depthToComputeDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(depthToComputeBarrier);
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
+
+        if (!freezeFrustum) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, minMaxDepthShader, dldid);
+            graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
+
+            const auto tileDepthsBarrier = vk::BufferMemoryBarrier2()
+                .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+                .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+                .setBuffer(tileDepthsBuffer.buffer)
+                .setSize(tileDepthsSize);
+            const auto tileDepthsDependencyInfo = vk::DependencyInfo()
+                .setBufferMemoryBarriers(tileDepthsBarrier);
+            graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileDepthsDependencyInfo);
+
+            const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
+                .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+                .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+                .setBuffer(tileFrustumBuffer.buffer)
+                .setSize(tileFrustumsSize);
+            const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
+                .setBufferMemoryBarriers(tileFrustumsBarrier);
+            graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
+        }
 
         if (useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingViewShader, dldid);
@@ -168,28 +138,13 @@ void Renderer::Draw() {
             graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightInViewDependencyInfo);
         }
 
-        const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
-                        .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
-                        .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-                        .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
-                        .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
-                        .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-                        .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-                        .setImage(depthImage.image)
-                        .setSubresourceRange(depthStencilSubresourceRange);
-        const auto depthToComputeDependencyInfo = vk::DependencyInfo()
-            .setImageMemoryBarriers(depthToComputeBarrier);
-        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
-
-        uint32_t lightCullX = (swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16;
-        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
         if(useForwardPlusTestShader)
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingTestShader, dldid);
         else
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
 
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
-        
+
         const auto lightIndicesBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
@@ -197,7 +152,7 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(lightIndicesBuffer.buffer)
             .setSize(lightIndicesSize);
-    
+
         const auto depthToGraphicsBarrier = vk::ImageMemoryBarrier2()
             .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
             .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -207,12 +162,83 @@ void Renderer::Draw() {
             .setNewLayout(vk::ImageLayout::eAttachmentOptimal)
             .setImage(depthImage.image)
             .setSubresourceRange(depthStencilSubresourceRange);
-    
+
         const auto lightCullingDependencyInfo = vk::DependencyInfo()
             .setImageMemoryBarriers(depthToGraphicsBarrier)
             .setBufferMemoryBarriers(lightIndicesBarrier);
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightCullingDependencyInfo);
     }
+
+    // Directional shadow map pass.
+    {
+        const auto dirShadowMap = vk::RenderingAttachmentInfo()
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setClearValue(vk::ClearDepthStencilValue(0, 0))
+        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+        .setImageView(shadowMapImage.view)
+        .setResolveMode(vk::ResolveModeFlagBits::eNone)
+        .setResolveImageLayout(vk::ImageLayout::eUndefined);
+
+        constexpr auto shadowArea = vk::Rect2D()
+        .setExtent(vk::Extent2D(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION));
+        const auto shadowRenderInfo = vk::RenderingInfo()
+        .setPDepthAttachment(&dirShadowMap)
+        .setRenderArea(shadowArea)
+        .setFlags(vk::RenderingFlags())
+        .setLayerCount(1);
+        constexpr auto viewportShadow = vk::Viewport()
+        .setMinDepth(0.0f)
+        .setMaxDepth(1.0f)
+        .setHeight(-static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setWidth(static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setX(0)
+        .setY(static_cast<float>(SHADOW_MAP_RESOLUTION));
+        constexpr auto scissorShadow = vk::Rect2D()
+            .setExtent(vk::Extent2D{SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION})
+            .setOffset({ 0 ,0 });
+
+        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewportShadow);
+        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissorShadow);
+        graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::True);
+        graphCompCmdBuffers[currentFrame].setDepthBias(0.0f, 0.0f, -1.0f);
+        graphCompCmdBuffers[currentFrame].beginRendering(shadowRenderInfo);
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, shadowMapShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphCompCmdBuffers[currentFrame].endRendering();
+        graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::False);
+
+        const auto shadowBarrier = vk::ImageMemoryBarrier2()
+        .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+        .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+        .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+        .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+        .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+        .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+        .setImage(shadowMapImage.image)
+        .setSubresourceRange(depthSubresourceRange);
+        const auto shadowDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(shadowBarrier);
+
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(shadowDependencyInfo);
+
+        const auto viewport = vk::Viewport()
+            .setMinDepth(0.0f)
+            .setMaxDepth(1.0f)
+            .setHeight(-static_cast<float>(swapchain.renderExtend.height))
+            .setWidth(static_cast<float>(swapchain.renderExtend.width))
+            .setX(0)
+            .setY(static_cast<float>(swapchain.renderExtend.height));
+        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
+        const auto scissor = vk::Rect2D()
+            .setExtent(swapchain.renderExtend)
+            .setOffset({ 0 ,0 });
+        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
+    }
+
+    graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
+    graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
 
     // Forward shading and specular.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
@@ -237,10 +263,10 @@ void Renderer::Draw() {
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
-    
+
     if (drawUI) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(graphCompCmdBuffers[currentFrame]));
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphCompCmdBuffers[currentFrame]);
     }
 
     graphCompCmdBuffers[currentFrame].endRendering();
@@ -287,7 +313,7 @@ std::array<glm::vec4, 6> ExtractFrustum(glm::mat4 mat) {
     bottom[2] = mat[2].w + mat[2].y;
     bottom[3] = mat[3].w + mat[3].y;
 
-    std::array<glm::vec4, 6> planes = { near, far, right, left, top, bottom };
+    std::array planes = { near, far, right, left, top, bottom };
     for (auto & plane : planes) {
         const auto length = sqrtf(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
         plane /= length;
@@ -500,6 +526,7 @@ void Renderer::CreatePipeline() {
     lightCullingViewShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingView", dldid, perspectiveRange, descriptorLayouts);
     lightCullingShader       = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
+    minMaxDepthShader        = MakeComputeShaderObjectSlang(device.device, "calcMinMaxDepth", dldid, perspectiveRange, descriptorLayouts);
 
     const auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
@@ -930,7 +957,7 @@ void Renderer::PushConstant_Draw() {
     uploader.StageUpload(projViewBuffer, projViewTransform);
 
     if (!freezeFrustum) {
-        const auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
+        const auto frustumSpan = std::span(vertices).subspan(0, 6);
         uploader.StageUpload(vertexBuffer.buffer, frustumSpan);
     }
     stageBuffers[currentFrame] = uploader.Upload(graphCompCmdBuffers[currentFrame], device.device);
@@ -1022,11 +1049,11 @@ void Renderer::SpawnLights_Init() {
     std::random_device randomDevice;
     auto ranGen = std::mt19937(3529725061); //NOLINT
 
-    std::uniform_int_distribution<int> posxzDistrib(-10, 60);
-    std::uniform_int_distribution<int> posyDistrib(-10, 20);
-    std::uniform_int_distribution<int> rangeDistrib(5, 30);
+    std::uniform_int_distribution posxzDistrib(-10, 60);
+    std::uniform_int_distribution posyDistrib(-10, 20);
+    std::uniform_int_distribution rangeDistrib(5, 30);
     std::uniform_real_distribution<float> colorDistrib(0, 1);
-    for (size_t i = 0; i < 0; i++) {
+    for (size_t i = 0; i < 100; i++) {
         const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
         const auto dir = centre - pos;
 
@@ -1041,7 +1068,7 @@ void Renderer::SpawnLights_Init() {
         sl.lightType   = 1;
         spotLights.emplace_back(sl);
     }
-    for (size_t i = 0; i < 0; i++) {
+    for (size_t i = 0; i < 100; i++) {
         const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
 
         Light pl{};
@@ -1096,8 +1123,10 @@ void Renderer::CreateDescSets_Init() {
     lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
     lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
+    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
     tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1) * 2 + 2;
+    tileDepthsBuffer = CreateAllocatedBuffer(device.device, allocator, tileDepthsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
     bufferAddresses.meshletsAddress = meshletsBuffer.address;
@@ -1165,6 +1194,7 @@ void Renderer::CreateDescSets_Init() {
     descriptors.AddBufferDescriptor(tileFrustumBuffer.buffer, tileFrustumsSize, vk::DescriptorType::eStorageBuffer, 4);
     descriptors.AddBufferDescriptor(dirShadowTransBuffer.buffer, sizeof(glm::mat4), vk::DescriptorType::eUniformBuffer, 6);
     descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 7);
+    descriptors.AddBufferDescriptor(tileDepthsBuffer.buffer, tileDepthsSize, vk::DescriptorType::eStorageBuffer, 8);
 
     const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);

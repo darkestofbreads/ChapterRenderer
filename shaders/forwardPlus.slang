@@ -7,8 +7,7 @@ struct TaskShaderOutput {
 };
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
-    let a = plane.normal * sphere.pos;
-    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
+    return dot(plane.normal, sphere.pos) + plane.dist >= -sphere.r;
 }
 bool SphereInsideFrustum(Frustum f, Sphere s) {
     for (int i = 0; i < 6; i++) {

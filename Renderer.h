@@ -223,6 +223,10 @@ private:
 	AllocatedBuffer tileAABBBuffer;
 	size_t tileAABBsSize{};
 
+	// Tile Depths
+	AllocatedBuffer tileDepthsBuffer;
+	size_t tileDepthsSize{};
+
 	// Buffer addresses.
 	AllocatedBuffer addressBuffer;
 	BufferAddresses bufferAddresses{};
@@ -311,6 +315,7 @@ private:
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	std::vector<vk::ShaderEXT> shadowMapShaders;
+	vk::ShaderEXT minMaxDepthShader;
 	vk::ShaderEXT lightCullingShader;
 	vk::ShaderEXT lightCullingViewShader;
 	vk::ShaderEXT lightCullingTestShader;

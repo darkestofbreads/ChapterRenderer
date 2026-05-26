@@ -6,24 +6,17 @@
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
 }
-bool SphereInsideFrustum(Frustum frustum, Sphere sphere) {
-    for(uint i = 0; i < 6; i++) {
+bool SphereInsideFrustum( Sphere sphere, Frustum frustum, float zNear, float zFar ) {
+    if (sphere.pos.z - sphere.r > zNear || sphere.pos.z + sphere.r < zFar)
+        return false;
+
+    for(uint i = 0; i < 4; i++) {
         if( SphereInsidePlane(sphere, frustum.planes[i]) )
           return false;
     }
 
     return true;
 }
-//bool SphereInsidePlane(Sphere sphere, Plane plane) {
-//    let a = plane.normal * sphere.pos;
-//    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
-//}
-//bool SphereInsideFrustum(Frustum f, Sphere s) {
-//    for (int i = 0; i < 6; i++) {
-//        if (!SphereInsidePlane(s, f.planes[i])) return false;
-//    }
-//    return true;
-//}
 
 bool PointInsidePlane(float3 p, Plane plane) {
     return dot(plane.normal, p) - plane.dist < 0;
@@ -45,6 +38,8 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum) {
 
 groupshared uint visiblePointLightsCount;
 groupshared uint visibleSpotLightsCount;
+groupshared float minDepth;
+groupshared float maxDepth;
 groupshared Frustum frustum;
 
 struct ComputeShaderInput
@@ -62,15 +57,14 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 		visiblePointLightsCount = 0;
         visibleSpotLightsCount  = 0;
 
-        // Frustum f;
-        // for (var i = 0; i < 6; i++)
-        //     f.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
         frustum = tileFrustums[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY];
+        minDepth = -frustum.planes[4].dist;
+        maxDepth = frustum.planes[5].dist;
     }
     
     GroupMemoryBarrierWithGroupSync();
     
-    // Cull point lights.
+    // Cull point lights
     if (cs.LocalInvocationIndex < pc.sceneInfo.pointLightCount) {
         let light = pc.lights[cs.LocalInvocationIndex];
 
@@ -78,7 +72,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         s.pos = mul(float4(light.pos, 1), *pc.view).xyz;
         s.r   = light.radius;
     
-        if (SphereInsideFrustum(frustum, s)) {
+        if (SphereInsideFrustum(s, frustum, minDepth, maxDepth)) {
             uint currentCount;
             InterlockedAdd(visiblePointLightsCount, 1, currentCount);
             lightIndicesInView[currentCount + 2] = int(cs.LocalInvocationIndex);
@@ -87,7 +81,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     
     GroupMemoryBarrierWithGroupSync();
     
-    // Cull spot lights.
+    // Cull spot lights
 	float4x4 normalTransform = transpose(*pc.invView);
     if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
         let light = pc.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
