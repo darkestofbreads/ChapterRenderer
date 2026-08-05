@@ -115,7 +115,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     GroupMemoryBarrierWithGroupSync();
 
     // Cull point lights
-    if (cs.LocalInvocationIndex < lightIndicesInView[0]) {
+    /*if (cs.LocalInvocationIndex < lightIndicesInView[0]) {
         let lightIndex = lightIndicesInView[cs.LocalInvocationIndex + 2];
         let light = pc.lights[lightIndex];
 
@@ -128,13 +128,26 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
             InterlockedAdd(visiblePointLightsCount, 1, currentCount);
             lightIndicesInTiles[offset + currentCount] = lightIndex;
 		}
+    }*/
+    if (cs.LocalInvocationIndex < pc.sceneInfo.pointLightCount) {
+        let light = pc.lights[cs.LocalInvocationIndex];
+
+        Sphere s;
+        s.pos = mul(float4(light.pos, 1), *pc.view).xyz;
+        s.r   = light.radius;
+
+        if (SphereInsideAABB(s, aabb) && SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
+            uint currentCount;
+            InterlockedAdd(visiblePointLightsCount, 1, currentCount);
+    		lightIndicesInTiles[offset + currentCount] = int(cs.LocalInvocationIndex);
+    	}
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // Cull spot lights
     float4x4 normalTransform = transpose(*pc.invView);
-    if (cs.LocalInvocationIndex < lightIndicesInView[1]) {
+    /*if (cs.LocalInvocationIndex < lightIndicesInView[1]) {
         let lightIndex = lightIndicesInView[cs.LocalInvocationIndex + lightIndicesInView[0] + 2];
         let light = pc.lights[lightIndex];
 
@@ -149,6 +162,21 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
             InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
             lightIndicesInTiles[offset + visiblePointLightsCount + 1 + currentCount] = lightIndex;
     	}
+    }*/
+    if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
+        let light = pc.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
+
+        Cone c;
+        c.height = light.radius;
+        c.tip = mul(float4(light.pos, 1), *pc.view).xyz;
+        c.dir = normalize(mul(light.lightDir, normalTransform).xyz);
+        c.r   = tan(acos(light.cutoff)) * light.radius;
+    
+        if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
+            uint currentCount;
+            InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
+   		    lightIndicesInTiles[offset + visiblePointLightsCount + 1 + currentCount] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);
+   	    }
     }
 
     GroupMemoryBarrierWithGroupSync();
