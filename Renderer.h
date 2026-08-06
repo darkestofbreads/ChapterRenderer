@@ -187,7 +187,7 @@ private:
 	bool AcquireImageIndex(uint32_t& index);
 
 	bool doVsync = true;
-	bool requestNewSwapchain = false;
+	bool requestedNewSwapchain = false;
 	bool freezeFrustum = false;
 	bool firstTime = true;
 	bool doLightCulling = true;

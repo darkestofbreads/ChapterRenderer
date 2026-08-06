@@ -3,8 +3,6 @@
 
 #include "Renderer.h"
 
-#include "simdjson.h"
-
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     InitMainObjects(window, ready);
     CreateFencesAndSemaphores();
@@ -43,7 +41,7 @@ void Renderer::Draw() {
     // Fill screen tile frustum buffer if FOV or resolution changes.
     const uint32_t lightCullX = (swapchain.renderExtend.width  + swapchain.renderExtend.width  % 16) / 16;
     const uint32_t lightCullY = (swapchain.renderExtend.height + swapchain.renderExtend.height % 16) / 16;
-    if (firstTime || requestNewSwapchain) {
+    if (firstTime || requestedNewSwapchain) {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
@@ -271,6 +269,7 @@ void Renderer::Draw() {
 
     graphCompCmdBuffers[currentFrame].endRendering();
 
+    requestedNewSwapchain = false;
     SubmitAndPresent(imageIndex);
 }
 
@@ -356,14 +355,29 @@ void Renderer::BuildGlobalTransform() {
 }
 
 bool Renderer::AcquireImageIndex(uint32_t& index) {
-    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAcquiredSemaphores[currentFrame], nullptr);
-    const auto imageResult = imageNext.result;
-    index = imageNext.value;
-    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
+    try
+    {
+        const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAcquiredSemaphores[currentFrame], nullptr);
+        const auto imageResult = imageNext.result;
+        index = imageNext.value;
+        if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
+            std::printf("Requesting new swapchain.\n");
+            swapchain.Recreate(instance.pWindow, doVsync);
+            requestedNewSwapchain = true;
+            return false;
+        }
+        if (imageResult == vk::Result::eTimeout)
+        {
+            std::printf("AcquireImageIndex timed out.\n");
+        }
+    } catch ([[maybe_unused]] const vk::OutOfDateKHRError& e)
+    {
+        std::printf("Requesting new swapchain.\n");
         swapchain.Recreate(instance.pWindow, doVsync);
-        requestNewSwapchain = false;
+        requestedNewSwapchain = true;
         return false;
     }
+
     return true;
 }
 void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea) {
@@ -455,13 +469,13 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
+        if (!requestedNewSwapchain)
+            [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
     }
     catch ([[maybe_unused]] std::exception& e) {
-        requestNewSwapchain = true;
+        requestedNewSwapchain = true;
     }
-    if (requestNewSwapchain) {
-        requestNewSwapchain = false;
+    if (requestedNewSwapchain) {
         {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
         device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
@@ -556,7 +570,7 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     vkFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
     VmaAllocatorCreateInfo allocInfo = {};
     allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-    allocInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocInfo.vulkanApiVersion = VK_API_VERSION_1_4;
     allocInfo.device = device.device;
     allocInfo.instance = instance.instance;
     allocInfo.physicalDevice = device.physicalDevice;
@@ -987,7 +1001,7 @@ void Renderer::ImGui_Draw(double frameTime) {
 
     ImGui::Text(std::format("X: {:.4f} Y: {:.4f} Z {:.4f}", position.x, position.y, position.z).c_str());
     ImGui::Text(std::format("{:.3f} ms | {:.1f} fps\n", frameTime, 1000 / frameTime).c_str());
-    requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
+    requestedNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
     ImGui::Checkbox("Freeze frustum", &freezeFrustum);
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
     if (doLightCulling)
