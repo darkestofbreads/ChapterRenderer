@@ -39,8 +39,8 @@ void Renderer::Draw() {
     PushConstant_Draw();
 
     // Fill screen tile frustum buffer if FOV or resolution changes.
-    const uint32_t lightCullX = (swapchain.renderExtend.width  + swapchain.renderExtend.width  % 16) / 16;
-    const uint32_t lightCullY = (swapchain.renderExtend.height + swapchain.renderExtend.height % 16) / 16;
+    const auto lightCullX = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.width  / 16.f));
+    const auto lightCullY = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.height / 16.f));
     if (firstTime || requestedNewSwapchain) {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
@@ -955,8 +955,8 @@ void Renderer::PushConstant_Draw() {
     sceneInfo.meshCount    = meshViews.size();
     sceneInfo.windowWidth  = swapchain.renderExtend.width;
     sceneInfo.windowHeight = swapchain.renderExtend.height;
-    sceneInfo.tileCountX   = (swapchain.renderExtend.width  + swapchain.renderExtend.width  % 16U) / 16U;
-    sceneInfo.tileCountY   = (swapchain.renderExtend.height + swapchain.renderExtend.height % 16U) / 16U;
+    sceneInfo.tileCountX   = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.width  / 16.f));
+    sceneInfo.tileCountY   = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.height / 16.f));
 
     const auto uploadCamPos = glm::vec4(position, 1);
     const auto invProj = glm::inverse(proj);
@@ -1133,13 +1133,13 @@ void Renderer::CreateDescSets_Init() {
     constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
 
     // Buffers.
-    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16));
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f));
     lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
     lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
+    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f) + 1);
     tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1) * 2 + 2;
+    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f) + 1) * 2 + 4;
     tileDepthsBuffer = CreateAllocatedBuffer(device.device, allocator, tileDepthsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
