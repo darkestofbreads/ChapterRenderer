@@ -2,6 +2,7 @@
 
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
 [[vk::binding(7, 0)]] RWStructuredBuffer<int> lightIndicesInView;
+[[vk::binding(8, 0)]] RWStructuredBuffer<uint> minMaxDepthPerTile;
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
@@ -26,8 +27,18 @@ bool ConeInsidePlane(Cone cone, Plane plane) {
     let q = cone.tip + cone.dir * cone.height - m * cone.r;
     return PointInsidePlane(cone.tip, plane) && PointInsidePlane(q, plane);
 }
-bool ConeInsideFrustum(Cone cone, Frustum frustum) {
-    for(uint i = 0; i < 6; i++) {
+bool ConeInsideFrustum(Cone cone, Frustum frustum, float zNear, float zFar) {
+    Plane near;
+    near.normal = float3(0, 0, -1);
+    near.dist   = -zNear;
+    Plane far;
+    far.normal = float3(0, 0, 1);
+    far.dist   = zFar;
+
+    //if(ConeInsidePlane(cone, near) || ConeInsidePlane(cone, far))
+    //    return false;
+
+    for(uint i = 0; i < 4; i++) {
         if(ConeInsidePlane(cone, frustum.planes[i]))
             return false;
     }
@@ -35,11 +46,10 @@ bool ConeInsideFrustum(Cone cone, Frustum frustum) {
     return true;
 }
 
-
 groupshared uint visiblePointLightsCount;
 groupshared uint visibleSpotLightsCount;
-groupshared float minDepth;
-groupshared float maxDepth;
+groupshared float minDepthView;
+groupshared float maxDepthView;
 groupshared Frustum frustum;
 
 struct ComputeShaderInput
@@ -58,8 +68,13 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         visibleSpotLightsCount  = 0;
 
         frustum = tileFrustums[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY];
-        minDepth = -frustum.planes[4].dist;
-        maxDepth = frustum.planes[5].dist;
+        //minDepthView = -frustum.planes[4].dist;
+        //maxDepthView = frustum.planes[5].dist;
+
+        float minDepth = asfloat(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2]);
+        float maxDepth = asfloat(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2 + 1]);
+        minDepthView = ClipToView(float4(0, 0, minDepth, 1), *pc.invProj).z;
+        maxDepthView = ClipToView(float4(0, 0, maxDepth, 1), *pc.invProj).z;
     }
     
     GroupMemoryBarrierWithGroupSync();
@@ -72,7 +87,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         s.pos = mul(float4(light.pos, 1), *pc.view).xyz;
         s.r   = light.radius;
     
-        if (SphereInsideFrustum(s, frustum, minDepth, maxDepth)) {
+        if (SphereInsideFrustum(s, frustum, minDepthView, maxDepthView)) {
             uint currentCount;
             InterlockedAdd(visiblePointLightsCount, 1, currentCount);
             lightIndicesInView[currentCount + 2] = int(cs.LocalInvocationIndex);
@@ -92,7 +107,7 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         c.dir = normalize(mul(light.lightDir, normalTransform).xyz);
         c.r   = tan(acos(light.cutoff)) * light.radius;
     
-        if (ConeInsideFrustum(c, frustum)) {
+        if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
             uint currentCount;
             InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
             lightIndicesInView[visiblePointLightsCount + currentCount + 2] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);

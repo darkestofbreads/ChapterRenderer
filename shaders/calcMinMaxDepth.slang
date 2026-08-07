@@ -17,6 +17,10 @@ groupshared uint maxDepthInt;
 [shader("compute")]
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
+    if (cs.GlobalInvocationID.x == 0 && cs.GlobalInvocationID.y == 0) {
+        minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2] = 0;
+        minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2 + 1] = 0xffffffff;
+    }
     if (cs.LocalInvocationIndex == 0) {
 	    minDepthInt = 0;
 	    maxDepthInt = 0xffffffff;
@@ -44,29 +48,28 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
 
         // Very slow, use only for debugging purposes
         // Compute min and max depth of view
-        //InterlockedMax(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2], minDepthInt);
-        //InterlockedMin(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2 + 1], maxDepthInt);
+        //let viewIndex = pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2;
+        //InterlockedMax(minMaxDepthPerTile[viewIndex], minDepthInt);
+        //InterlockedMin(minMaxDepthPerTile[viewIndex + 1], maxDepthInt);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
+    // Compute view min-max depth
     if(cs.GlobalInvocationID.x < pc.sceneInfo.tileCountX && cs.GlobalInvocationID.y < pc.sceneInfo.tileCountY) {
         let index = (cs.GlobalInvocationID.y * pc.sceneInfo.tileCountX + cs.GlobalInvocationID.x) * 2;
         let minDepth = minMaxDepthPerTile[index];
         let maxDepth = minMaxDepthPerTile[index + 1];
-        InterlockedMin(maxDepthInt, maxDepth);
         InterlockedMax(minDepthInt, minDepth);
-    } else {
-        return;
+        InterlockedMin(maxDepthInt, maxDepth);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     if(cs.LocalInvocationIndex == 0) {
-        InterlockedMin(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2 + 1], maxDepthInt);
-        InterlockedMax(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2], minDepthInt);
-    } else {
-        return;
+        let viewIndex = pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2;
+        InterlockedMax(minMaxDepthPerTile[viewIndex], minDepthInt);
+        InterlockedMin(minMaxDepthPerTile[viewIndex + 1], maxDepthInt);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -75,7 +78,6 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
     if (cs.GlobalInvocationID.x == 0 && cs.GlobalInvocationID.y == 0) {
         float minDepth = asfloat(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2]);
     	float maxDepth = asfloat(minMaxDepthPerTile[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY * 2 + 1]);
-
         float minDepthView = ClipToView(float4(0, 0, minDepth, 1), *pc.invProj).z;
         float maxDepthView = ClipToView(float4(0, 0, maxDepth, 1), *pc.invProj).z;
 

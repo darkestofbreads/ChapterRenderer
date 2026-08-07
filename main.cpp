@@ -54,10 +54,6 @@ static void doRendering(std::atomic<bool>* stillRunning, std::atomic<bool>* read
             SDL_SetWindowMouseGrab(window, grabMouse);
             SDL_SetWindowRelativeMouseMode(window, grabMouse);
         }
-        // Currently the "worst case benchmarking point".
-        if (input.IsPressed(SDL_SCANCODE_G))
-            renderer.Teleport(glm::vec3(24, 4, 14.5f));
-
         if (input.IsPressed(SDL_SCANCODE_R))
             renderer.Teleport(glm::vec3(0, 0, 0));
 

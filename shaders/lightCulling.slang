@@ -1,10 +1,8 @@
 #include "common.slang"
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<Sampler2D> textures;
 [[vk::binding(1, 0)]] Sampler2D depth;
 [[vk::binding(2, 0)]] RWStructuredBuffer<int> lightIndices;
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
-[[vk::binding(8, 0)]] RWStructuredBuffer<float> minMaxDepthPerTile;
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
