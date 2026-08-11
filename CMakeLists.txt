@@ -33,7 +33,7 @@ add_subdirectory(extern/fastgltf)
 add_subdirectory(extern/meshoptimizer)
 
 target_link_libraries(ChapterOne PUBLIC Vulkan::Vulkan)
-target_link_libraries(ChapterOne PUBLIC SDL3::SDL3-shared)
+target_link_libraries(ChapterOne PUBLIC SDL3::SDL3)
 target_link_libraries(ChapterOne PUBLIC fastgltf::fastgltf)
 target_link_libraries(ChapterOne PUBLIC meshoptimizer)
 

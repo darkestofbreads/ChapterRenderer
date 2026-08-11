@@ -188,8 +188,8 @@ private:
 
 	bool doVsync = true;
 	bool requestedNewSwapchain = false;
+	bool requestNewSwapchain = true;
 	bool freezeFrustum = false;
-	bool firstTime = true;
 	bool doLightCulling = true;
 	bool drawUI = true;
 	bool showLightHeatmap = false;

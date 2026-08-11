@@ -82,7 +82,7 @@ void Swapchain::Recreate(SDL_Window* pWindow, bool vsync) {
         .setPresentMode(vk::PresentModeKHR::eFifo);
 
     if (!vsync)
-        swapchainInfo.setPresentMode(vk::PresentModeKHR::eImmediate);
+        swapchainInfo.setPresentMode(vk::PresentModeKHR::eMailbox);
 
     swapchain = pDevice->createSwapchainKHR(swapchainInfo);
     images = pDevice->getSwapchainImagesKHR(swapchain);

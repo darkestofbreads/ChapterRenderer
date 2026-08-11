@@ -23,6 +23,14 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
+    if (requestNewSwapchain)
+    {
+        std::printf("Recreating swapchain.\n");
+        swapchain.Recreate(instance.pWindow, doVsync);
+        requestedNewSwapchain = true;
+        requestNewSwapchain = false;
+        return;
+    }
     uint32_t imageIndex;
     if (!AcquireImageIndex(imageIndex)) return;
 
@@ -39,9 +47,9 @@ void Renderer::Draw() {
     PushConstant_Draw();
 
     // Fill screen tile frustum buffer if FOV or resolution changes.
-    const auto lightCullX = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.width  / 16.f));
-    const auto lightCullY = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.height / 16.f));
-    if (firstTime || requestedNewSwapchain) {
+    const auto lightCullX = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.width)  / 16.f));
+    const auto lightCullY = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f));
+    if (requestedNewSwapchain) {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
@@ -269,8 +277,8 @@ void Renderer::Draw() {
 
     graphCompCmdBuffers[currentFrame].endRendering();
 
-    requestedNewSwapchain = false;
     SubmitAndPresent(imageIndex);
+    requestedNewSwapchain = false;
 }
 
 // Camera related functions.
@@ -361,9 +369,7 @@ bool Renderer::AcquireImageIndex(uint32_t& index) {
         const auto imageResult = imageNext.result;
         index = imageNext.value;
         if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
-            std::printf("Requesting new swapchain.\n");
-            swapchain.Recreate(instance.pWindow, doVsync);
-            requestedNewSwapchain = true;
+            requestNewSwapchain = true;
             return false;
         }
         if (imageResult == vk::Result::eTimeout)
@@ -372,9 +378,7 @@ bool Renderer::AcquireImageIndex(uint32_t& index) {
         }
     } catch ([[maybe_unused]] const vk::OutOfDateKHRError& e)
     {
-        std::printf("Requesting new swapchain.\n");
-        swapchain.Recreate(instance.pWindow, doVsync);
-        requestedNewSwapchain = true;
+        requestNewSwapchain = true;
         return false;
     }
 
@@ -469,19 +473,17 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        if (!requestedNewSwapchain)
-            [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
+        [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
     }
     catch ([[maybe_unused]] std::exception& e) {
-        requestedNewSwapchain = true;
+        requestNewSwapchain = true;
     }
-    if (requestedNewSwapchain) {
+    if (requestNewSwapchain) {
         {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
         device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
         device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-        swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
 
@@ -491,7 +493,6 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     if (!stageBuffers[currentFrame].isEmpty)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
     graphCompCmdBuffers[currentFrame].reset();
-    firstTime = false;
 }
 
 void Renderer::InitImGui(SDL_Window* window) {
@@ -955,8 +956,8 @@ void Renderer::PushConstant_Draw() {
     sceneInfo.meshCount    = meshViews.size();
     sceneInfo.windowWidth  = swapchain.renderExtend.width;
     sceneInfo.windowHeight = swapchain.renderExtend.height;
-    sceneInfo.tileCountX   = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.width  / 16.f));
-    sceneInfo.tileCountY   = static_cast<uint32_t>(std::ceil(swapchain.renderExtend.height / 16.f));
+    sceneInfo.tileCountX   = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.width)  / 16.f));
+    sceneInfo.tileCountY   = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f));
 
     const auto uploadCamPos = glm::vec4(position, 1);
     const auto invProj = glm::inverse(proj);
@@ -1001,7 +1002,8 @@ void Renderer::ImGui_Draw(double frameTime) {
 
     ImGui::Text(std::format("X: {:.4f} Y: {:.4f} Z {:.4f}", position.x, position.y, position.z).c_str());
     ImGui::Text(std::format("{:.3f} ms | {:.1f} fps\n", frameTime, 1000 / frameTime).c_str());
-    requestedNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
+    if (ImGui::Checkbox("Toggle Vsync", &doVsync))
+        requestNewSwapchain = true;
     ImGui::Checkbox("Freeze frustum", &freezeFrustum);
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
     if (doLightCulling)
@@ -1133,13 +1135,13 @@ void Renderer::CreateDescSets_Init() {
     constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
 
     // Buffers.
-    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f));
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f));
     lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
     lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f) + 1);
+    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1);
     tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(swapchain.renderExtend.height / 16.f) * std::ceil(swapchain.renderExtend.width / 16.f) + 1) * 2 + 4;
+    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1) * 2 + 4;
     tileDepthsBuffer = CreateAllocatedBuffer(device.device, allocator, tileDepthsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
