@@ -34,13 +34,13 @@ void Descriptors::AddImageDescriptor(const std::vector<AllocatedImage> &images, 
     descriptors.emplace_back(descriptor);
 }
 
-void Descriptors::AddImageDescriptor(const AllocatedImage &images, const vk::ImageLayout layout, uint32_t shaderBinding) {
+void Descriptors::AddImageDescriptor(const AllocatedImage &image, const vk::ImageLayout layout, uint32_t shaderBinding) {
     ImageDescriptor imageDescriptor;
     imageDescriptor.descriptorImageInfos = std::vector<vk::DescriptorImageInfo>(1);
         imageDescriptor.descriptorImageInfos[0] = vk::DescriptorImageInfo()
         .setImageLayout(layout)
-        .setSampler(images.sampler)
-        .setImageView(images.view);
+        .setSampler(image.sampler)
+        .setImageView(image.view);
 
     Descriptor descriptor;
     descriptor.descriptorType = vk::DescriptorType::eCombinedImageSampler;
@@ -48,6 +48,25 @@ void Descriptors::AddImageDescriptor(const AllocatedImage &images, const vk::Ima
     descriptor.imageDescriptor = imageDescriptor;
 
     descriptors.emplace_back(descriptor);
+}
+
+void Descriptors::UpdateImageDescriptor(const AllocatedImage &image, const vk::ImageLayout layout, uint32_t shaderBinding)
+{
+    ImageDescriptor imageDescriptor;
+    imageDescriptor.descriptorImageInfos = std::vector<vk::DescriptorImageInfo>(1);
+    imageDescriptor.descriptorImageInfos[0] = vk::DescriptorImageInfo()
+        .setImageLayout(layout)
+        .setSampler(image.sampler)
+        .setImageView(image.view);
+
+    Descriptor descriptor;
+    descriptor.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    descriptor.shaderBinding = shaderBinding;
+    descriptor.imageDescriptor = imageDescriptor;
+
+    for (auto &d : descriptors)
+        if (d.shaderBinding == shaderBinding)
+            d = descriptor;
 }
 
 void Descriptors::CreateSetsAndWriteDescriptors(const vk::Device device) {

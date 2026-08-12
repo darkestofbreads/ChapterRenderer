@@ -28,6 +28,13 @@ static SDL_Window* CreateVulkanWindow(const char* title, int width = 1280, int h
     SDL_SetWindowFullscreen(window, true);
     SDL_SetWindowMouseGrab(window, true);
     SDL_SetWindowRelativeMouseMode(window, true);
+    SDL_ShowWindow(window);
+
+    SDL_Event event;
+    while (SDL_PollEvent(&event))
+    {
+        // Poll initial events
+    }
     return window;
 }
 

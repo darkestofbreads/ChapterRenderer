@@ -27,6 +27,14 @@ void Renderer::Draw() {
     {
         std::printf("Recreating swapchain.\n");
         swapchain.Recreate(instance.pWindow, doVsync);
+
+        depthImage = CreateAllocatedImage(device.device, allocator, swapchain.renderExtend, vk::Format::eD24UnormS8Uint, vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled, nearestSampler);
+        descriptors.UpdateImageDescriptor(depthImage, vk::ImageLayout::eDepthReadOnlyOptimal, 1);
+
+        const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
+        SubmitImmediate(descFunc);
+        device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
+
         requestedNewSwapchain = true;
         requestNewSwapchain = false;
         return;
@@ -1135,13 +1143,20 @@ void Renderer::CreateDescSets_Init() {
     constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
 
     // Buffers.
-    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f));
-    lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    // TODO: Buffers initialized before window size is known.
+    constexpr auto h = 2160U;
+    constexpr auto w = 3840U;
+    //lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f));
+    //tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1);
+    //tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1) * 2 + 4;
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f));
+    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f) + 1);
+    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f) + 1) * 2 + 4;
     lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
+
+    lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1);
     tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1) * 2 + 4;
     tileDepthsBuffer = CreateAllocatedBuffer(device.device, allocator, tileDepthsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
@@ -1174,8 +1189,8 @@ void Renderer::CreateDescSets_Init() {
     camPosBuffer    = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     sceneInfoBuffer = CreateAllocatedBuffer(device.device, allocator, sizeof(SceneInfo), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
-    constexpr float near  = 0.01f;
-    constexpr float far   = 4000.0f;
+    constexpr auto near  = 0.01f;
+    constexpr auto far   = 4000.0f;
     const auto dirOrtho = glm::orthoRH_ZO(-35.0f, 35.0f, -35.0f, 35.0f, near, far);
     const auto dirLightView = glm::lookAt(10.0f * glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     dirShadowTrans = dirOrtho * dirLightView;

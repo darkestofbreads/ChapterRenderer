@@ -131,7 +131,7 @@ AllocatedImage CreateAllocatedImage(const vk::Device device, const VmaAllocator 
     imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     imageAllocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    {const auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&allocImage.image), &allocImage.alloc, nullptr);}
+    {[[maybe_unused]]const auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&allocImage.image), &allocImage.alloc, nullptr);}
 
     constexpr auto identity = vk::ComponentSwizzle::eIdentity;
     constexpr auto compMapping = vk::ComponentMapping()
