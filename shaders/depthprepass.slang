@@ -6,8 +6,7 @@ struct TaskShaderOutput {
 };
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
-    let a = plane.normal * sphere.pos;
-    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
+    return dot(plane.normal, sphere.pos) + plane.dist >= -sphere.r;
 }
 bool SphereInsideFrustum(Frustum f, Sphere s) {
     for (int i = 0; i < 6; i++) {
@@ -16,6 +15,7 @@ bool SphereInsideFrustum(Frustum f, Sphere s) {
     return true;
 }
 
+[[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
 groupshared TaskShaderOutput payload;
 
 [shader("amplification")]
@@ -33,7 +33,7 @@ void taskMain(
     let view = pc.meshViews[bound.meshID];
 
     // Frustum culling against the meshlets sphere.
-    Frustum viewFrustum;
+    var viewFrustum = tileFrustums[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY + 1];
     for (var i = 0; i < 6; i++)
         viewFrustum.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
     let boundingSphere = Sphere(bound.sphereCenter, bound.sphereRadius);
@@ -96,11 +96,5 @@ struct DepthFragOut {
 }
 
 [shader("pixel")]
-void fragMain(/*uniform PushConstant pc, float4 pos : SV_Position*/) {
-    //DepthFragOut depthOut;
-    //
-    //let currentDepth = pos.z / pos.w;
-    //depthOut.depth = currentDepth;
-    //
-    //return depthOut;
+void fragMain() {
 }

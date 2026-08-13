@@ -7,8 +7,7 @@ struct TaskShaderOutput {
 };
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
-    let a = plane.normal * sphere.pos;
-    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
+    return dot(plane.normal, sphere.pos) + plane.dist >= -sphere.r;
 }
 bool SphereInsideFrustum(Frustum f, Sphere s) {
     for (int i = 0; i < 6; i++) {
@@ -17,6 +16,7 @@ bool SphereInsideFrustum(Frustum f, Sphere s) {
     return true;
 }
 
+[[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
 groupshared TaskShaderOutput payload;
 
 [shader("amplification")]
@@ -35,7 +35,7 @@ void taskMain(
     payload.materialIndex = view.material;
 
     // Frustum culling against the meshlets sphere.
-    Frustum viewFrustum;
+    var viewFrustum = tileFrustums[pc.sceneInfo.tileCountX * pc.sceneInfo.tileCountY + 1];
     for (var i = 0; i < 6; i++)
         viewFrustum.planes[i] = Plane(pc.vertices[i].position.xyz, pc.vertices[i].u);
     let boundingSphere = Sphere(bound.sphereCenter, bound.sphereRadius);
@@ -112,6 +112,12 @@ void meshMain(
 
 [[vk::binding(0, 0)]] uniform Sampler2D textures[];
 [[vk::binding(2, 0)]] StructuredBuffer<int> lightIndices;
+[[vk::binding(5, 0)]] Sampler2D dirShadowMap;
+
+struct mat4{
+    float4x4 mat;
+};
+[[vk::binding(6, 0)]] ConstantBuffer<mat4> dirShadowTrans;
 
 [shader("pixel")]
 float4 fragMain(VertexOutput input, uniform PushConstant pc)
@@ -151,17 +157,28 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
         fragment += CalcSpotLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
     }
 
+    // Directional lights.
     var index = 0U;
     var limit = pc.sceneInfo.pointLightCount;
     index = pc.sceneInfo.spotLightCount;
     limit += pc.sceneInfo.spotLightCount;
-
     index += pc.sceneInfo.pointLightCount;
-    for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
-        var light = pc.lights[index];
-        light.lightDir = mul(light.lightDir, normalTransform);
-    	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
-    }
+
+    // Sample from shadow map.
+    let lightMat = mul(*pc.invView, dirShadowTrans.mat);
+    var lightFragPos = mul(input.viewPos, lightMat);
+    lightFragPos /= lightFragPos.w;
+    float closestDepth = 0;
+    lightFragPos.x = (lightFragPos.x + 1.0) / 2.0;
+    lightFragPos.y = 1.0 - (lightFragPos.y + 1.0) / 2.0;
+    closestDepth = dirShadowMap.Sample(lightFragPos.xy).r;
+
+    if(lightFragPos.z >= closestDepth)
+        for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
+            var light = pc.lights[index];
+            light.lightDir = mul(light.lightDir, normalTransform);
+        	fragment += CalcDirLight(light, input.viewPos.xyz, N, diff.xyz, metallicRoughness);
+        }
 
     // Gamma correction.
     fragment = fragment.xyz / (fragment.xyz + float3(1.0));

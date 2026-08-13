@@ -7,8 +7,7 @@ struct TaskShaderOutput {
 };
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
-    let a = plane.normal * sphere.pos;
-    return !(a.x + a.y + a.z + plane.dist <= -sphere.r);
+    return dot(plane.normal, sphere.pos) + plane.dist >= -sphere.r;
 }
 bool SphereInsideFrustum(Frustum f, Sphere s) {
     for (int i = 0; i < 6; i++) {
@@ -127,7 +126,7 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
     let tileID = int2(input.screenPos.xy / TILE_SIZE);
     let tileIndex = tileID.y * pc.sceneInfo.tileCountX + tileID.x;
 
-    uint offset = tileIndex * MAX_VISIBLE_LIGHTS;
+    let offset = tileIndex * MAX_VISIBLE_LIGHTS;
     uint i;
     for (i = 0; i < MAX_VISIBLE_LIGHTS; i++) {
         int lightindex = lightIndices[i + offset];

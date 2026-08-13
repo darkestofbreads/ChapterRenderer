@@ -133,7 +133,7 @@ struct BufferAddresses {
 	vk::DeviceAddress materialBufferAddress;
 	vk::DeviceAddress lightBufferAddress;
 };
-// Push constants have a garuanteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
+// Push constants have a guaranteed limit of 128 bytes, however most if not all mesh shading capable GPUs have a limit of 256 bytes.
 struct PushConstantData {
 	vk::DeviceAddress projView;
 	vk::DeviceAddress view;
@@ -169,7 +169,7 @@ public:
 	void Draw();
 
 	void Move(float forward, float sideward);
-	void Teleport(glm::vec3 pos, glm::vec3 direction = glm::vec3(0, 0, 1));
+	void Teleport(glm::vec3 pos, glm::vec3 dir = glm::vec3(0, 0, 1));
 	float yaw = 0;
 	float pitch = 0;
 private:
@@ -178,19 +178,18 @@ private:
 	void ImGui_Draw(double frameTime);
 	void LoadModels_Init();
 	void SpawnLights_Init();
-	void UploadAll_Init();
 	void CreateSamplers_Init();
 	void CreateDescSets_Init();
 
 	void SubmitAndPresent(uint32_t imageIndex);
 	void SubmitImmediate(const std::function<void()>& func);
-	void Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea);
-	bool AquireImageIndex(uint32_t& index);
+	void Begin(uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea);
+	bool AcquireImageIndex(uint32_t& index);
 
 	bool doVsync = true;
-	bool requestNewSwapchain = false;
+	bool requestedNewSwapchain = false;
+	bool requestNewSwapchain = true;
 	bool freezeFrustum = false;
-	bool firstTime = true;
 	bool doLightCulling = true;
 	bool drawUI = true;
 	bool showLightHeatmap = false;
@@ -202,13 +201,6 @@ private:
 	void CreateFencesAndSemaphores();
 	void InitMainObjects(SDL_Window* window, std::atomic<bool>* ready);
 
-	GPUBuffer UploadMesh(std::span<Vertex> vertices);
-	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures);
-
-	AllocatedImage CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps = false);
-	AllocatedImage CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps = false);
-	vk::ImageView  CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource);
-
 	// Textures.
 	void CreateDebugTextures();
 	std::vector<AllocatedImage> textures;
@@ -217,62 +209,60 @@ private:
 
 	// Light indices.
 	AllocatedBuffer lightIndicesBuffer;
-	size_t lightIndicesSize;
+	size_t lightIndicesSize{};
 
 	// Light indices in view.
 	AllocatedBuffer lightIndicesViewBuffer;
-	size_t lightIndicesViewSize;
+	size_t lightIndicesViewSize{};
 
 	// Tile frustums.
 	AllocatedBuffer tileFrustumBuffer;
-	size_t tileFrustumsSize;
+	size_t tileFrustumsSize{};
 
 	// Tile AABBs.
 	AllocatedBuffer tileAABBBuffer;
-	size_t tileAABBsSize;
+	size_t tileAABBsSize{};
+
+	// Tile Depths
+	AllocatedBuffer tileDepthsBuffer;
+	size_t tileDepthsSize{};
 
 	// Buffer addresses.
-	GPUBuffer bufferAddressBuffer;
-	BufferAddresses bufferAddresses;
+	AllocatedBuffer addressBuffer;
+	BufferAddresses bufferAddresses{};
 
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
 
-	void LoadGLTF(std::filesystem::path path, glm::mat4 transform = glm::mat4(1.0f));
+	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const;
+	void LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
-	GPUBuffer vertexBuffer;
+	AllocatedBuffer vertexBuffer;
 	AllocatedBuffer stageBuffer;
-	VmaAllocator allocator;
+	VmaAllocator allocator{};
 
-	GPUBuffer CreateEmptyBuffer(size_t size);
-	template<typename T>
-	GPUBuffer UploadData(std::span<T> data);
-	template<typename T>
-	GPUBuffer UploadData(T&& data);
+	AllocatedBuffer meshletsBuffer;
+	AllocatedBuffer meshletBoundsBuffer;
+	AllocatedBuffer meshletVerticesBuffer;
+	AllocatedBuffer meshletTrianglesBuffer;
 
-	template<typename T>
-	void UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset = 0);
+	AllocatedBuffer meshViewBuffer;
+	AllocatedBuffer materialBuffer;
+	AllocatedBuffer lightBuffer;
 
-	GPUBuffer meshletsAddress;
-	GPUBuffer meshletBoundsAddress;
-	GPUBuffer meshletVerticesAddress;
-	GPUBuffer meshletTrianglesAddress;
+	AllocatedBuffer projViewBuffer;
+	AllocatedBuffer dirShadowTransBuffer;
+	AllocatedBuffer viewBuffer;
+	AllocatedBuffer invProjBuffer;
+	AllocatedBuffer invViewBuffer;
+	AllocatedBuffer camPosBuffer;
+	AllocatedBuffer sceneInfoBuffer;
 
-	GPUBuffer meshViewBufferAddress;
-	GPUBuffer materialBufferAddress;
-	GPUBuffer lightBufferAddress;
-
-	GPUBuffer projViewAddress;
-	GPUBuffer viewAddress;
-	GPUBuffer invProjAddress;
-	GPUBuffer invViewAddress;
-	GPUBuffer camPosAddress;
-	GPUBuffer sceneInfoAddress;
-
-	glm::mat4 projViewTransform;
-	glm::mat4 view;
-	glm::mat4 proj;
+	glm::mat4 dirShadowTrans{};
+	glm::mat4 projViewTransform{};
+	glm::mat4 view{};
+	glm::mat4 proj{};
 	glm::vec3 position  = glm::vec3(0);
 	glm::vec3 direction = glm::vec3(0, 0, 1.0f);
 
@@ -281,13 +271,9 @@ private:
 	Device device;
 	Swapchain swapchain;
 	AllocatedImage depthImage;
-	vk::Image depthStencilImage;
-	vk::ImageView depthImageView;
-	vk::ImageView stencilImageView;
+	AllocatedImage shadowMapImage;
 	vk::ImageSubresourceRange depthSubresourceRange;
-	vk::ImageSubresourceRange stencilSubresourceRange;
 	vk::ImageSubresourceRange depthStencilSubresourceRange;
-	void CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource);
 
 	Descriptors descriptors;
 	Instance instance;
@@ -301,13 +287,13 @@ private:
 
 	uint32_t currentFrame = 0;
 	std::array<vk::CommandBuffer, MAX_FRAMES_IN_FLIGHT> graphCompCmdBuffers;
-	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> imageAquiredSemaphores;
+	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> imageAcquiredSemaphores;
 	std::array <vk::Semaphore, MAX_FRAMES_IN_FLIGHT> renderFinishedSemaphores;
 	std::array <vk::Fence, MAX_FRAMES_IN_FLIGHT> inFlightFences;
 	std::array <AllocatedBuffer, MAX_FRAMES_IN_FLIGHT> stageBuffers;
 	vk::Fence immediateFence;
 
-	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t vertexCountPreModelLoad, uint32_t materialIndex);
+	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID);
 	std::vector<Vertex>			 vertices;
 	std::vector<meshopt_Meshlet> meshlets;
 	std::vector<MeshletBounds>	 meshletBounds;
@@ -328,6 +314,8 @@ private:
 	std::vector<vk::ShaderEXT> forwardPlusTestShaders;
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
+	std::vector<vk::ShaderEXT> shadowMapShaders;
+	vk::ShaderEXT minMaxDepthShader;
 	vk::ShaderEXT lightCullingShader;
 	vk::ShaderEXT lightCullingViewShader;
 	vk::ShaderEXT lightCullingTestShader;

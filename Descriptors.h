@@ -24,9 +24,10 @@ struct Descriptor {
 
 class Descriptors {
 public:
-    void AddImageDescriptor(const AllocatedImage &images, const vk::ImageLayout layout, uint32_t shaderBinding);
+    void AddImageDescriptor(const AllocatedImage &images, vk::ImageLayout layout, uint32_t shaderBinding);
+    void UpdateImageDescriptor(const AllocatedImage& images, vk::ImageLayout layout, uint32_t shaderBinding);
     void AddImageDescriptor(const std::vector<AllocatedImage> &images, vk::ImageLayout layout, uint32_t shaderBinding);
-    void AddBufferDescriptor(const vk::Buffer buffer, const vk::DeviceSize bufferSize, const vk::DescriptorType descriptorType, const uint32_t shaderBinding);
+    void AddBufferDescriptor(vk::Buffer buffer, vk::DeviceSize bufferSize, vk::DescriptorType descriptorType, uint32_t shaderBinding);
 
     void CreateSetsAndWriteDescriptors(vk::Device device);
 

@@ -9,7 +9,17 @@ Device::Device() {
 Device::Device(vk::Instance& instance) {
     // Create a physical device.
     auto pDevices = instance.enumeratePhysicalDevices();
-    physicalDevice = pDevices[0];
+    for (auto d : pDevices) {
+        VkPhysicalDeviceProperties p;
+        VkPhysicalDeviceFeatures f;
+        vkGetPhysicalDeviceProperties(d, &p);
+        vkGetPhysicalDeviceFeatures(d, &f);
+
+        if (p.deviceType & VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+            physicalDevice = d;
+    }
+    if (physicalDevice == nullptr)
+        physicalDevice = pDevices[0];
 
     // Get support for extensions used in main render path.
     auto physicalExtensions = physicalDevice.enumerateDeviceExtensionProperties();

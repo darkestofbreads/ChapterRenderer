@@ -1,10 +1,9 @@
 #include "common.slang"
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<Sampler2D> textures;
-[[vk::binding(1, 0)]] Sampler2D depth;
 [[vk::binding(2, 0)]] RWStructuredBuffer<int> lightIndicesInTiles;
 [[vk::binding(4, 0)]] RWStructuredBuffer<Frustum> tileFrustums;
-[[vk::binding(5, 0)]] RWStructuredBuffer<int> lightIndicesInView;
+[[vk::binding(7, 0)]] RWStructuredBuffer<int> lightIndicesInView;
+[[vk::binding(8, 0)]] RWStructuredBuffer<uint> minMaxDepthPerTile;
 
 bool SphereInsidePlane(Sphere sphere, Plane plane) {
     return dot(plane.normal, sphere.pos) - plane.dist < -sphere.r;
@@ -53,10 +52,11 @@ bool SphereInsideAABB(Sphere s, AABB aabb) {
     return fDistSq <= s.r * s.r;
 }
 
-groupshared uint minDepthInt;
-groupshared uint maxDepthInt;
+groupshared float minDepthView;
+groupshared float maxDepthView;
 groupshared uint visiblePointLightsCount;
 groupshared uint visibleSpotLightsCount;
+groupshared uint offset;
 groupshared Frustum frustum;
 groupshared AABB aabb;
 
@@ -71,53 +71,32 @@ struct ComputeShaderInput
 [shader("compute")]
 [numthreads(TILE_SIZE, TILE_SIZE, 1)]
 void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
-    let tileID = cs.WorkGroupID.xy;
-    uint index = tileID.y * pc.sceneInfo.tileCountX + tileID.x;
-    
     if (cs.LocalInvocationIndex == 0) {
-	    minDepthInt = 0;
-	    maxDepthInt = 0xffffffff;
+        let index = cs.WorkGroupID.y * pc.sceneInfo.tileCountX + cs.WorkGroupID.x;
+        offset = index * MAX_VISIBLE_LIGHTS;
 		visiblePointLightsCount = 0;
         visibleSpotLightsCount  = 0;
         frustum = tileFrustums[index];
-    }
 
-    GroupMemoryBarrierWithGroupSync();
+        // Compute view depth
+        let minDepth = asfloat(minMaxDepthPerTile[index * 2]);
+        let maxDepth = asfloat(minMaxDepthPerTile[index * 2 + 1]);
+        let nearClipView = ClipToView(float4(0, 0, 0, 1), *pc.invProj).z;
+        minDepthView = ClipToView(float4(0, 0, minDepth, 1), *pc.invProj).z;
+        maxDepthView = ClipToView(float4(0, 0, maxDepth, 1), *pc.invProj).z;
 
-    // Compute min and max depth of tile.
-    let uv = cs.GlobalInvocationID.xy / float2(pc.sceneInfo.width, pc.sceneInfo.height);
-    let depth    = depth.Sample(uv).x;
-    let depthInt = asuint(depth);
-    
-    InterlockedMin(maxDepthInt, depthInt);
-    InterlockedMax(minDepthInt, depthInt);
-
-    GroupMemoryBarrierWithGroupSync();
-
-    // Compute tile frustum.
-    float minDepth = asfloat(minDepthInt);
-	float maxDepth = asfloat(maxDepthInt);
-    float minDepthView = ClipToView(float4(0, 0, minDepth, 1), *pc.invProj).z;
-    float maxDepthView = ClipToView(float4(0, 0, maxDepth, 1), *pc.invProj).z;
-    float nearClipView = ClipToView(float4(0, 0, 0, 1)       , *pc.invProj).z;
-
-    Plane minPlane;
-    minPlane.normal = float3(0, 0, -1);
-    minPlane.dist   = -minDepthView;
-
-    // Compute tile AABB.
-    if (cs.LocalInvocationIndex == 0) {
-        let id = cs.WorkGroupID;
+        // Compute tile AABB
+        let tileID = cs.WorkGroupID.xy;
         float3 viewSpace[8];
-        viewSpace[0] = ScreenToView(float4(id.xy * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[1] = ScreenToView(float4(float2(id.x + 1, id.y) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[2] = ScreenToView(float4(float2(id.x, id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[3] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, minDepth, 1.0f), *pc.sceneInfo, *pc.invProj) .xyz;
+        viewSpace[0] = ScreenToView(float4(tileID.xy * TILE_SIZE, minDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[1] = ScreenToView(float4(float2(tileID.x + 1, tileID.y) * TILE_SIZE, minDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[2] = ScreenToView(float4(float2(tileID.x, tileID.y + 1) * TILE_SIZE, minDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[3] = ScreenToView(float4(float2(tileID.x + 1, tileID.y + 1) * TILE_SIZE, minDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
 
-        viewSpace[4] = ScreenToView(float4(id.xy * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[5] = ScreenToView(float4(float2(id.x + 1, id.y) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[6] = ScreenToView(float4(float2(id.x, id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj).xyz;
-        viewSpace[7] = ScreenToView(float4(float2(id.x + 1, id.y + 1) * TILE_SIZE, maxDepth, 1.0f), *pc.sceneInfo, *pc.invProj) .xyz;
+        viewSpace[4] = ScreenToView(float4(tileID.xy * TILE_SIZE, maxDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[5] = ScreenToView(float4(float2(tileID.x + 1, tileID.y) * TILE_SIZE, maxDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[6] = ScreenToView(float4(float2(tileID.x, tileID.y + 1) * TILE_SIZE, maxDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
+        viewSpace[7] = ScreenToView(float4(float2(tileID.x + 1, tileID.y + 1) * TILE_SIZE, maxDepth, 1.0), *pc.sceneInfo, *pc.invProj).xyz;
 
         float3 minAABB = 10000000;
         float3 maxAABB = -10000000;
@@ -127,15 +106,18 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
         }
         aabb = ComputeAABB(minAABB, maxAABB);
     }
+    //Plane minPlane;
+    //minPlane.normal = float3(0, 0, -1);
+    //minPlane.dist   = -minDepthView;
 
     GroupMemoryBarrierWithGroupSync();
 
-    // Cull point lights.
-    uint offset = index * MAX_VISIBLE_LIGHTS;
-
+    // Cull point lights
     if (cs.LocalInvocationIndex < lightIndicesInView[0]) {
+    //if (cs.LocalInvocationIndex < pc.sceneInfo.pointLightCount) {
         let lightIndex = lightIndicesInView[cs.LocalInvocationIndex + 2];
         let light = pc.lights[lightIndex];
+        //let light = pc.lights[cs.LocalInvocationIndex];
 
         Sphere s;
         s.pos = mul(float4(light.pos, 1), *pc.view).xyz;
@@ -145,18 +127,20 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
             uint currentCount;
             InterlockedAdd(visiblePointLightsCount, 1, currentCount);
             lightIndicesInTiles[offset + currentCount] = lightIndex;
-		}
+    		//lightIndicesInTiles[offset + currentCount] = int(cs.LocalInvocationIndex);
+    	}
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    // Cull spot lights.
-     float4x4 normalTransform = transpose(*pc.invView);
-
-     if (cs.LocalInvocationIndex < lightIndicesInView[1]) {
+    // Cull spot lights
+    float4x4 normalTransform = transpose(*pc.invView);
+    if (cs.LocalInvocationIndex < lightIndicesInView[1]) {
+    //if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
         let lightIndex = lightIndicesInView[cs.LocalInvocationIndex + lightIndicesInView[0] + 2];
         let light = pc.lights[lightIndex];
-    
+        //let light = pc.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
+
         Cone c;
         c.height = light.radius;
         c.tip = mul(float4(light.pos, 1), *pc.view).xyz;
@@ -167,23 +151,9 @@ void computeMain(ComputeShaderInput cs, uniform PushConstant pc) {
             uint currentCount;
             InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
             lightIndicesInTiles[offset + visiblePointLightsCount + 1 + currentCount] = lightIndex;
-    	}
+   		    //lightIndicesInTiles[offset + visiblePointLightsCount + 1 + currentCount] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);
+   	    }
     }
-    //if (cs.LocalInvocationIndex < pc.sceneInfo.spotLightCount) {
-    //    let light = pc.lights[cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount];
-    //
-    //    Cone c;
-    //    c.height = light.radius;
-    //    c.tip = mul(float4(light.pos, 1), *pc.view).xyz;
-    //    c.dir = normalize(mul(light.lightDir, normalTransform).xyz);
-    //    c.r = tan(acos(light.cutoff)) * light.radius;
-    //
-    //    if (ConeInsideFrustum(c, frustum, minDepthView, maxDepthView)) {
-    //        uint currentCount;
-    //        InterlockedAdd(visibleSpotLightsCount, 1, currentCount);
-    //        lightIndicesInTiles[offset + visiblePointLightsCount + 1 + currentCount] = int(cs.LocalInvocationIndex + pc.sceneInfo.pointLightCount);
-    //    }
-    //}
 
     GroupMemoryBarrierWithGroupSync();
 

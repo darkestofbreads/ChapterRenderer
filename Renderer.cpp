@@ -3,8 +3,6 @@
 
 #include "Renderer.h"
 
-#include "simdjson.h"
-
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     InitMainObjects(window, ready);
     CreateFencesAndSemaphores();
@@ -16,7 +14,6 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 
     LoadModels_Init();
     SpawnLights_Init();
-    UploadAll_Init();
 
     CreateDescSets_Init();
     CreatePipeline();
@@ -26,8 +23,24 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
 }
 
 void Renderer::Draw() {
+    if (requestNewSwapchain)
+    {
+        std::printf("Recreating swapchain.\n");
+        swapchain.Recreate(instance.pWindow, doVsync);
+
+        depthImage = CreateAllocatedImage(device.device, allocator, swapchain.renderExtend, vk::Format::eD24UnormS8Uint, vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled, nearestSampler);
+        descriptors.UpdateImageDescriptor(depthImage, vk::ImageLayout::eDepthReadOnlyOptimal, 1);
+
+        const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
+        SubmitImmediate(descFunc);
+        device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
+
+        requestedNewSwapchain = true;
+        requestNewSwapchain = false;
+        return;
+    }
     uint32_t imageIndex;
-    if (!AquireImageIndex(imageIndex)) return;
+    if (!AcquireImageIndex(imageIndex)) return;
 
     double frameTime = frameTimer.GetMilliseconds();
     if (drawUI) ImGui_Draw(frameTime);
@@ -42,9 +55,9 @@ void Renderer::Draw() {
     PushConstant_Draw();
 
     // Fill screen tile frustum buffer if FOV or resolution changes.
-    if (firstTime || requestNewSwapchain) {
-        uint32_t lightCullX = (swapchain.renderExtend.width + (swapchain.renderExtend.width % 16)) / 16;
-        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
+    const auto lightCullX = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.width)  / 16.f));
+    const auto lightCullY = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f));
+    if (requestedNewSwapchain) {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, screenTileFrustumsShader, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
@@ -52,33 +65,28 @@ void Renderer::Draw() {
         const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eTaskShaderEXT)
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(tileFrustumBuffer.buffer)
             .setSize(tileFrustumsSize);
 
-        const auto tileBarriers = { tileFrustumsBarrier };
         const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
-            .setBufferMemoryBarriers(tileBarriers);
+            .setBufferMemoryBarriers(tileFrustumsBarrier);
         
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
     }
-    
-    // Depth pre-pass.
+
     graphCompCmdBuffers[currentFrame].setDepthTestEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::True);
     graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eGreater);
-    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
-    
+
     // Depth prepass.
+    vk::RenderingInfo renderInfo(vk::RenderingFlags(), renderArea, 1, 0, colorAttachment, &depthAttachment);
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     {
         graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, depthprepassShaders, dldid);
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-    
-        graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
-        graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
     }
     graphCompCmdBuffers[currentFrame].endRendering();
     renderInfo.setFlags(vk::RenderingFlagBits::eResuming);
@@ -86,6 +94,46 @@ void Renderer::Draw() {
     // Light culling.
     if (doLightCulling) {
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+        // Calculate min and max depth
+        const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+            .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+            .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+            .setImage(depthImage.image)
+            .setSubresourceRange(depthStencilSubresourceRange);
+        const auto depthToComputeDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(depthToComputeBarrier);
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
+
+        if (!freezeFrustum) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, minMaxDepthShader, dldid);
+            graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
+
+            const auto tileDepthsBarrier = vk::BufferMemoryBarrier2()
+                .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+                .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+                .setBuffer(tileDepthsBuffer.buffer)
+                .setSize(tileDepthsSize);
+            const auto tileDepthsDependencyInfo = vk::DependencyInfo()
+                .setBufferMemoryBarriers(tileDepthsBarrier);
+            graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileDepthsDependencyInfo);
+
+            const auto tileFrustumsBarrier = vk::BufferMemoryBarrier2()
+                .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
+                .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
+                .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
+                .setBuffer(tileFrustumBuffer.buffer)
+                .setSize(tileFrustumsSize);
+            const auto tileFrustumsDependencyInfo = vk::DependencyInfo()
+                .setBufferMemoryBarriers(tileFrustumsBarrier);
+            graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
+        }
 
         if (useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingViewShader, dldid);
@@ -104,28 +152,13 @@ void Renderer::Draw() {
             graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightInViewDependencyInfo);
         }
 
-        const auto depthToComputeBarrier = vk::ImageMemoryBarrier2()
-            .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
-            .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eComputeShader)
-            .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
-            .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
-            .setImage(depthStencilImage)
-            .setSubresourceRange(depthStencilSubresourceRange);
-        const auto depthToComputeDependencyInfo = vk::DependencyInfo()
-            .setImageMemoryBarriers(depthToComputeBarrier);
-        graphCompCmdBuffers[currentFrame].pipelineBarrier2(depthToComputeDependencyInfo);
-
-        uint32_t lightCullX = (swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16;
-        uint32_t lightCullY = (swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16;
         if(useForwardPlusTestShader)
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingTestShader, dldid);
         else
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
 
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
-        
+
         const auto lightIndicesBarrier = vk::BufferMemoryBarrier2()
             .setSrcStageMask(vk::PipelineStageFlagBits2::eComputeShader)
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderStorageWrite)
@@ -133,7 +166,7 @@ void Renderer::Draw() {
             .setDstAccessMask(vk::AccessFlagBits2::eShaderStorageRead)
             .setBuffer(lightIndicesBuffer.buffer)
             .setSize(lightIndicesSize);
-    
+
         const auto depthToGraphicsBarrier = vk::ImageMemoryBarrier2()
             .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
             .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -141,14 +174,85 @@ void Renderer::Draw() {
             .setSrcAccessMask(vk::AccessFlagBits2::eShaderRead)
             .setOldLayout(vk::ImageLayout::eReadOnlyOptimal)
             .setNewLayout(vk::ImageLayout::eAttachmentOptimal)
-            .setImage(depthStencilImage)
+            .setImage(depthImage.image)
             .setSubresourceRange(depthStencilSubresourceRange);
-    
+
         const auto lightCullingDependencyInfo = vk::DependencyInfo()
             .setImageMemoryBarriers(depthToGraphicsBarrier)
             .setBufferMemoryBarriers(lightIndicesBarrier);
         graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightCullingDependencyInfo);
     }
+
+    // Directional shadow map pass.
+    {
+        const auto dirShadowMap = vk::RenderingAttachmentInfo()
+        .setLoadOp(vk::AttachmentLoadOp::eClear)
+        .setStoreOp(vk::AttachmentStoreOp::eStore)
+        .setClearValue(vk::ClearDepthStencilValue(0, 0))
+        .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
+        .setImageView(shadowMapImage.view)
+        .setResolveMode(vk::ResolveModeFlagBits::eNone)
+        .setResolveImageLayout(vk::ImageLayout::eUndefined);
+
+        constexpr auto shadowArea = vk::Rect2D()
+        .setExtent(vk::Extent2D(SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION));
+        const auto shadowRenderInfo = vk::RenderingInfo()
+        .setPDepthAttachment(&dirShadowMap)
+        .setRenderArea(shadowArea)
+        .setFlags(vk::RenderingFlags())
+        .setLayerCount(1);
+        constexpr auto viewportShadow = vk::Viewport()
+        .setMinDepth(0.0f)
+        .setMaxDepth(1.0f)
+        .setHeight(-static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setWidth(static_cast<float>(SHADOW_MAP_RESOLUTION))
+        .setX(0)
+        .setY(static_cast<float>(SHADOW_MAP_RESOLUTION));
+        constexpr auto scissorShadow = vk::Rect2D()
+            .setExtent(vk::Extent2D{SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION})
+            .setOffset({ 0 ,0 });
+
+        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewportShadow);
+        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissorShadow);
+        graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::True);
+        graphCompCmdBuffers[currentFrame].setDepthBias(0.0f, 0.0f, -1.0f);
+        graphCompCmdBuffers[currentFrame].beginRendering(shadowRenderInfo);
+        graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, shadowMapShaders, dldid);
+        graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+        graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        graphCompCmdBuffers[currentFrame].endRendering();
+        graphCompCmdBuffers[currentFrame].setDepthBiasEnable(vk::False);
+
+        const auto shadowBarrier = vk::ImageMemoryBarrier2()
+        .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+        .setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
+        .setSrcStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests)
+        .setDstAccessMask(vk::AccessFlagBits2::eShaderRead)
+        .setNewLayout(vk::ImageLayout::eReadOnlyOptimal)
+        .setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+        .setImage(shadowMapImage.image)
+        .setSubresourceRange(depthSubresourceRange);
+        const auto shadowDependencyInfo = vk::DependencyInfo()
+            .setImageMemoryBarriers(shadowBarrier);
+
+        graphCompCmdBuffers[currentFrame].pipelineBarrier2(shadowDependencyInfo);
+
+        const auto viewport = vk::Viewport()
+            .setMinDepth(0.0f)
+            .setMaxDepth(1.0f)
+            .setHeight(-static_cast<float>(swapchain.renderExtend.height))
+            .setWidth(static_cast<float>(swapchain.renderExtend.width))
+            .setX(0)
+            .setY(static_cast<float>(swapchain.renderExtend.height));
+        graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
+        const auto scissor = vk::Rect2D()
+            .setExtent(swapchain.renderExtend)
+            .setOffset({ 0 ,0 });
+        graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
+    }
+
+    graphCompCmdBuffers[currentFrame].setDepthWriteEnable(vk::False);
+    graphCompCmdBuffers[currentFrame].setDepthCompareOp(vk::CompareOp::eEqual);
 
     // Forward shading and specular.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
@@ -173,15 +277,16 @@ void Renderer::Draw() {
         graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
         graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
     }
-    
+
     if (drawUI) {
         ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), static_cast<VkCommandBuffer>(graphCompCmdBuffers[currentFrame]));
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), graphCompCmdBuffers[currentFrame]);
     }
 
     graphCompCmdBuffers[currentFrame].endRendering();
 
     SubmitAndPresent(imageIndex);
+    requestedNewSwapchain = false;
 }
 
 // Camera related functions.
@@ -223,19 +328,19 @@ std::array<glm::vec4, 6> ExtractFrustum(glm::mat4 mat) {
     bottom[2] = mat[2].w + mat[2].y;
     bottom[3] = mat[3].w + mat[3].y;
 
-    std::array<glm::vec4, 6> planes = { near, far, right, left, top, bottom };
-    for (size_t i = 0; i < planes.size(); i++) {
-        const auto lenght = sqrtf(planes[i].x * planes[i].x + planes[i].y * planes[i].y + planes[i].z * planes[i].z);
-        planes[i] /= lenght;
+    std::array planes = { near, far, right, left, top, bottom };
+    for (auto & plane : planes) {
+        const auto length = sqrtf(plane.x * plane.x + plane.y * plane.y + plane.z * plane.z);
+        plane /= length;
     }
 
     return planes;
 }
-void Renderer::Move(float forward, float sideward) {
+void Renderer::Move(const float forward, const float sideward) {
     position += forward * direction;
     position -= glm::normalize(glm::cross(direction, glm::vec3(0, 1, 0))) * sideward;
 }
-void Renderer::Teleport(glm::vec3 pos, glm::vec3 direction) {
+void Renderer::Teleport(const glm::vec3 pos, const glm::vec3 dir) {
     position = pos;
     yaw = -90;
     pitch = 0;
@@ -246,11 +351,11 @@ void Renderer::BuildGlobalTransform() {
     direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
     direction = glm::normalize(direction);
 
-    const float ratio = (float)swapchain.renderExtend.width / (float)swapchain.renderExtend.height;
-    const float near  = 0.01f;
-    const float far   = 4000.0f;
-    const float fovY  = 90.0f;
-    const auto up     = glm::vec3(0, 1.0f, 0);
+    const float ratio = static_cast<float>(swapchain.renderExtend.width) / static_cast<float>(swapchain.renderExtend.height);
+    constexpr float near  = 0.01f;
+    constexpr float far   = 4000.0f;
+    constexpr float fovY  = 90.0f;
+    constexpr auto up     = glm::vec3(0, 1.0f, 0);
 
     view = glm::lookAt(position, position + direction, up);
 
@@ -265,15 +370,26 @@ void Renderer::BuildGlobalTransform() {
     }
 }
 
-bool Renderer::AquireImageIndex(uint32_t& index) {
-    const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAquiredSemaphores[currentFrame], nullptr);
-    const auto imageResult = imageNext.result;
-    index = imageNext.value;
-    if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
-        swapchain.Recreate(instance.pWindow, doVsync);
-        requestNewSwapchain = false;
+bool Renderer::AcquireImageIndex(uint32_t& index) {
+    try
+    {
+        const auto imageNext   = device.device.acquireNextImageKHR(swapchain.Get(), UINT64_MAX, imageAcquiredSemaphores[currentFrame], nullptr);
+        const auto imageResult = imageNext.result;
+        index = imageNext.value;
+        if (imageResult == vk::Result::eSuboptimalKHR || imageResult == vk::Result::eErrorOutOfDateKHR) {
+            requestNewSwapchain = true;
+            return false;
+        }
+        if (imageResult == vk::Result::eTimeout)
+        {
+            std::printf("AcquireImageIndex timed out.\n");
+        }
+    } catch ([[maybe_unused]] const vk::OutOfDateKHRError& e)
+    {
+        requestNewSwapchain = true;
         return false;
     }
+
     return true;
 }
 void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& colorAttachment, vk::RenderingAttachmentInfo& depthAttachment, vk::Rect2D& renderArea) {
@@ -282,7 +398,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
         .setStoreOp(vk::AttachmentStoreOp::eStore)
         .setClearValue(vk::ClearDepthStencilValue(0, 0))
         .setImageLayout(vk::ImageLayout::eDepthAttachmentOptimal)
-        .setImageView(depthImageView)
+        .setImageView(depthImage.view)
         .setResolveMode(vk::ResolveModeFlagBits::eNone)
         .setResolveImageLayout(vk::ImageLayout::eUndefined);
     colorAttachment = vk::RenderingAttachmentInfo()
@@ -299,19 +415,21 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
 
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eColorAttachmentWrite);
-    TransitionImage(graphCompCmdBuffers[currentFrame], depthStencilImage, depthStencilSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthImage.image, depthStencilSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::AccessFlagBits2::eNone,
+        vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite);
+    TransitionImage(graphCompCmdBuffers[currentFrame], shadowMapImage.image, depthSubresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthAttachmentOptimal, vk::AccessFlagBits2::eNone,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite);
     SetDynamicStates(graphCompCmdBuffers[currentFrame], dldid);
 
-    auto viewport = vk::Viewport()
+    const auto viewport = vk::Viewport()
         .setMinDepth(0.0f)
         .setMaxDepth(1.0f)
-        .setHeight(-(float)swapchain.renderExtend.height)
-        .setWidth(swapchain.renderExtend.width)
+        .setHeight(-static_cast<float>(swapchain.renderExtend.height))
+        .setWidth(static_cast<float>(swapchain.renderExtend.width))
         .setX(0)
-        .setY(swapchain.renderExtend.height);
+        .setY(static_cast<float>(swapchain.renderExtend.height));
     graphCompCmdBuffers[currentFrame].setViewportWithCount(viewport);
-    auto scissor = vk::Rect2D()
+    const auto scissor = vk::Rect2D()
         .setExtent(swapchain.renderExtend)
         .setOffset({ 0 ,0 });
     graphCompCmdBuffers[currentFrame].setScissorWithCount(scissor);
@@ -324,7 +442,7 @@ void Renderer::Begin(const uint32_t imageIndex, vk::RenderingAttachmentInfo& col
 void Renderer::SubmitImmediate(const std::function<void()>& func) {
     device.device.resetFences(immediateFence);
 
-    vk::CommandBufferBeginInfo beginInfo = vk::CommandBufferBeginInfo()
+    constexpr auto beginInfo = vk::CommandBufferBeginInfo()
         .setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
     graphCompCmdBuffers[0].begin(beginInfo);
     graphCompCmdBuffers[1].begin(beginInfo);
@@ -334,15 +452,17 @@ void Renderer::SubmitImmediate(const std::function<void()>& func) {
     graphCompCmdBuffers[0].end();
     graphCompCmdBuffers[1].end();
 
-    vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
+    const auto graphicsSubmitInfo = vk::SubmitInfo()
         .setCommandBuffers(graphCompCmdBuffers);
     graphicsComputeQueue.submit(graphicsSubmitInfo, immediateFence);
-    device.device.waitForFences(immediateFence, false, UINT64_MAX);
+    {[[maybe_unused]]const auto res = device.device.waitForFences(immediateFence, false, UINT64_MAX);}
 }
 void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     TransitionImage(graphCompCmdBuffers[currentFrame], swapchain.images[imageIndex], swapchain.subresourceRange, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eColorAttachmentWrite, vk::AccessFlagBits2::eNone);
-    TransitionImage(graphCompCmdBuffers[currentFrame], depthStencilImage, depthStencilSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+    TransitionImage(graphCompCmdBuffers[currentFrame], depthImage.image, depthStencilSubresourceRange, vk::ImageLayout::eDepthStencilAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR,
+        vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
+    TransitionImage(graphCompCmdBuffers[currentFrame], shadowMapImage.image, depthSubresourceRange, vk::ImageLayout::eReadOnlyOptimal, vk::ImageLayout::ePresentSrcKHR,
         vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite, vk::AccessFlagBits2::eNone);
     graphCompCmdBuffers[currentFrame].end();
 
@@ -350,40 +470,37 @@ void Renderer::SubmitAndPresent(uint32_t imageIndex) {
     vk::PipelineStageFlags graphicsWaitStage = vk::PipelineStageFlagBits::eColorAttachmentOutput;
     vk::SubmitInfo graphicsSubmitInfo = vk::SubmitInfo()
         .setCommandBuffers(graphCompCmdBuffers[currentFrame])
-        .setWaitSemaphores(imageAquiredSemaphores[currentFrame])
+        .setWaitSemaphores(imageAcquiredSemaphores[currentFrame])
         .setSignalSemaphores(renderFinishedSemaphores[imageIndex])
         .setWaitDstStageMask(graphicsWaitStage);
     graphicsComputeQueue.submit(graphicsSubmitInfo, inFlightFences[currentFrame]);
     
     // Present image.
-    vk::PresentInfoKHR info = vk::PresentInfoKHR()
+    const vk::PresentInfoKHR info = vk::PresentInfoKHR()
         .setSwapchains(swapchain.swapchain)
         .setImageIndices(imageIndex)
         .setWaitSemaphores(renderFinishedSemaphores[imageIndex]);
     try {
-        graphicsComputeQueue.presentKHR(info);
+        [[maybe_unused]] const auto res = graphicsComputeQueue.presentKHR(info);
     }
-    catch (std::exception e) {
+    catch ([[maybe_unused]] std::exception& e) {
         requestNewSwapchain = true;
     }
     if (requestNewSwapchain) {
-        requestNewSwapchain = false;
-        device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+        {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
         device.device.resetFences(inFlightFences[currentFrame]);
         if(!freezeFrustum)
             vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
         device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-        swapchain.Recreate(instance.pWindow, doVsync);
         return;
     }
 
     currentFrame = (currentFrame + 1) % 2;
-    device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);
+    {[[maybe_unused]] const auto res = device.device.waitForFences(inFlightFences[currentFrame], false, UINT64_MAX);}
     device.device.resetFences(inFlightFences[currentFrame]);
     if (!stageBuffers[currentFrame].isEmpty)
         vmaDestroyBuffer(allocator, stageBuffers[currentFrame].buffer, stageBuffers[currentFrame].alloc);
     graphCompCmdBuffers[currentFrame].reset();
-    firstTime = false;
 }
 
 void Renderer::InitImGui(SDL_Window* window) {
@@ -426,11 +543,13 @@ void Renderer::CreatePipeline() {
     forwardPlusTestShaders = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
     lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
+    shadowMapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "shadowMapping", dldid, perspectiveRange, descriptorLayouts);
 
     lightCullingTestShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingTest", dldid, perspectiveRange, descriptorLayouts);
     lightCullingViewShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingView", dldid, perspectiveRange, descriptorLayouts);
     lightCullingShader       = MakeComputeShaderObjectSlang(device.device, "lightCulling", dldid, perspectiveRange, descriptorLayouts);
     screenTileFrustumsShader = MakeComputeShaderObjectSlang(device.device, "screenTileFrustums", dldid, perspectiveRange, descriptorLayouts);
+    minMaxDepthShader        = MakeComputeShaderObjectSlang(device.device, "calcMinMaxDepth", dldid, perspectiveRange, descriptorLayouts);
 
     const auto pipelineLayoutInfo = vk::PipelineLayoutCreateInfo()
         .setPushConstantRanges(perspectiveRange)
@@ -439,9 +558,9 @@ void Renderer::CreatePipeline() {
 }
 void Renderer::CreateFencesAndSemaphores() {
     auto semaphoreInfo = vk::SemaphoreCreateInfo();
-    imageAquiredSemaphores  [0] = device.device.createSemaphore(semaphoreInfo);
+    imageAcquiredSemaphores  [0] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[0] = device.device.createSemaphore(semaphoreInfo);
-    imageAquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
+    imageAcquiredSemaphores  [1] = device.device.createSemaphore(semaphoreInfo);
     renderFinishedSemaphores[1] = device.device.createSemaphore(semaphoreInfo);
     
     inFlightFences[1] = device.device.createFence(vk::FenceCreateInfo().setFlags(vk::FenceCreateFlagBits::eSignaled));
@@ -460,7 +579,7 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     vkFuncs.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
     VmaAllocatorCreateInfo allocInfo = {};
     allocInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-    allocInfo.vulkanApiVersion = VK_API_VERSION_1_3;
+    allocInfo.vulkanApiVersion = VK_API_VERSION_1_4;
     allocInfo.device = device.device;
     allocInfo.instance = instance.instance;
     allocInfo.physicalDevice = device.physicalDevice;
@@ -479,15 +598,9 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
         .setBaseArrayLayer(0)
         .setLayerCount(1)
         .setLevelCount(1);
-    stencilSubresourceRange = vk::ImageSubresourceRange()
-        .setAspectMask(vk::ImageAspectFlagBits::eStencil)
-        .setBaseMipLevel(0)
-        .setBaseArrayLayer(0)
-        .setLayerCount(1)
-        .setLevelCount(1);
 
     swapchain = Swapchain(&device.device, device.physicalDevice, instance.surface);
-    CreateDepthStencilImage(swapchain.renderExtend, depthSubresourceRange, stencilSubresourceRange);
+    depthImage = CreateAllocatedImage(device.device, allocator, swapchain.renderExtend, vk::Format::eD24UnormS8Uint, vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled, nearestSampler);
 
     graphicsComputeQueue = device.device.getQueue(device.graphicsComputeQueueFamilyIndex, 0);
 
@@ -511,7 +624,7 @@ std::vector<T> ReadAttribute(const fastgltf::Asset& asset, const fastgltf::Primi
     std::memcpy(out.data(), data.bytes.data() + bufferView.byteOffset + acr.byteOffset, acr.count * sizeof(T));
     return out;
 }
-uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& textures) {
+uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const {
     const auto& texture          = asset.textures[imageInfo.textureIndex];
     const auto& image            = asset.images[texture.imageIndex.value()];
     const auto& sourceBufferView = get<fastgltf::sources::BufferView>(image.data);
@@ -522,12 +635,16 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
 
     std::vector<unsigned char> imageChars(imageBufferView.byteLength);
     std::memcpy(imageChars.data(), imageData.bytes.data() + imageBufferView.byteOffset, imageBufferView.byteLength);
-    unsigned char* pixels;
     if (sourceBufferView.mimeType == fastgltf::MimeType::JPEG || sourceBufferView.mimeType == fastgltf::MimeType::PNG) {
         int width, height, comp;
-        pixels = stbi_load_from_memory(imageChars.data(), imageBufferView.byteLength, &width, &height, &comp, STBI_rgb_alpha);
-        textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) }, vk::ImageUsageFlagBits::eSampled));
-        stbi_image_free(pixels);
+        const std::shared_ptr<void> pixels(
+            stbi_load_from_memory(imageChars.data(), static_cast<int>(imageBufferView.byteLength), &width, &height, &comp, STBI_rgb_alpha),
+            stbi_image_free
+        );
+
+        //txtrs.emplace_back(CreateUploadImage(pixels.get(), vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) }, vk::ImageUsageFlagBits::eSampled));
+        txtrs.emplace_back(CreateAllocatedImage(device.device, allocator, width, height, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eSampled, nearestSampler));
+        uploader.StageUpload(txtrs[txtrs.size()-1], pixels, width*height*4);
     }
     else if (sourceBufferView.mimeType == fastgltf::MimeType::KTX2) {
         //ktxTexture* textureKTX;
@@ -541,14 +658,14 @@ uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const 
     }
     else
         return 0;
-    return textures.size() - 1;
+    return txtrs.size() - 1;
 }
 void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices, std::vector<float>& positions) {
     std::vector<uint32_t> remap(indices.size());
     std::vector<uint32_t> newIndices(indices.size());
 
-    size_t oldVertCount = vertices.size();
-    size_t vertCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
+    const size_t oldVertCount = vertices.size();
+    const size_t vertCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(), vertices.data(), oldVertCount, sizeof(Vertex));
     std::vector<Vertex> newVertices(vertCount);
 
     meshopt_remapIndexBuffer(newIndices.data(), indices.data(), indices.size(), remap.data());
@@ -575,9 +692,9 @@ void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices,
         positions[i * 3 + 2] = vertices[i].Position.z;
     }
 }
-void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
-    Timer total = Timer();
-    Timer parts = Timer();
+void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform) {
+    auto total = Timer();
+    auto parts = Timer();
     auto data = fastgltf::GltfDataBuffer::FromPath(path);
     if (auto error = data.error(); error != fastgltf::Error::None) {
         std::cout << fastgltf::getErrorMessage(error) << "\n";
@@ -585,7 +702,7 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to open file." << "\n";
     parts.Reset();
-    auto gltf = parser.loadGltf(data.get(), path.parent_path(), fastgltf::Options::LoadGLBBuffers);
+    auto gltf = parser.loadGltf(data.get(), path.parent_path());
     if (auto error = gltf.error(); error != fastgltf::Error::None) {
         std::cout << fastgltf::getErrorMessage(error) << "\n";
         throw;
@@ -609,7 +726,7 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
         if (node.lightIndex.has_value()) {
             const auto& light = asset.lights[node.lightIndex.value()];
             const auto& nodeData = get<fastgltf::TRS>(node.transform);
-            Light l;
+            Light l{};
             switch (light.type) {
             case fastgltf::LightType::Point:
                 l.lightType = 0;
@@ -648,26 +765,26 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     std::vector<uint32_t> materialIDs;
     std::vector<MaterialIndexGroup> matIndexGroups;
     for (const auto& material : asset.materials) {
-        MaterialIndexGroup materialIndices;
+        MaterialIndexGroup matIndices{};
         const auto& pbrData = material.pbrData;
 
         if (pbrData.baseColorTexture.has_value())
-            materialIndices.diffuse = ParseGLTFImage(pbrData.baseColorTexture.value(), asset, textures);
+            matIndices.diffuse = ParseGLTFImage(pbrData.baseColorTexture.value(), asset, textures, uploader);
         else
-            materialIndices.diffuse = 0;
+            matIndices.diffuse = 0;
 
         if (pbrData.metallicRoughnessTexture.has_value())
-            materialIndices.metallicRoughness = ParseGLTFImage(pbrData.metallicRoughnessTexture.value(), asset, textures);
+            matIndices.metallicRoughness = ParseGLTFImage(pbrData.metallicRoughnessTexture.value(), asset, textures, uploader);
         else
-            materialIndices.metallicRoughness = 1;
+            matIndices.metallicRoughness = 1;
 
         if (material.emissiveTexture.has_value())
-            materialIndices.emissive = ParseGLTFImage(material.emissiveTexture.value(), asset, textures);
+            matIndices.emissive = ParseGLTFImage(material.emissiveTexture.value(), asset, textures, uploader);
         else
-            materialIndices.emissive = 1;
+            matIndices.emissive = 1;
 
         materialIDs.emplace_back(materialIndexGroups.size());
-        materialIndexGroups.emplace_back(materialIndices);
+        materialIndexGroups.emplace_back(matIndices);
     }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to load materials." << "\n";
     parts.Reset();
@@ -675,7 +792,7 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     // Load meshes.
     for (const auto& mesh : asset.meshes) {
         for (const auto& primitive : mesh.primitives) {
-            MeshView meshView;
+            MeshView meshView{};
             meshView.start = vertices.size();
 
             std::vector<Vertex> verticesLocal;
@@ -739,20 +856,20 @@ void Renderer::LoadGLTF(std::filesystem::path path, glm::mat4 transform) {
     std::cout << "Took " << total.GetMilliseconds() << " ms to fully load model." << "\n\n";
 }
 
-void BuildMeshlets(std::span<uint32_t> indices, std::span<float> positions, 
-    std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, uint32_t meshID) {
+void BuildMeshlets(const std::span<uint32_t> indices, const std::span<float> positions,
+    std::vector<meshopt_Meshlet>& meshlets, std::vector<uint32_t>& vertices, std::vector<uint8_t>& triangles, std::vector<MeshletBounds>& bounds, const uint32_t meshID) {
     // TODO: Lower max values when mesh has fewer primitives.
-    const size_t maxVertices = 64;
-    const size_t maxTriangles = 124;
-    const float  coneWeight = 0.25f;
+    constexpr size_t maxVertices = 64;
+    constexpr size_t maxTriangles = 124;
+    constexpr float  coneWeight = 0.25f;
 
-    size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
+    const size_t maxMeshlets = meshopt_buildMeshletsBound(indices.size(), maxVertices, maxTriangles);
     meshlets.resize(maxMeshlets);
     vertices.resize(maxMeshlets * maxVertices);
     triangles.resize(maxMeshlets * maxTriangles * 3);
 
     const size_t vertexCount = positions.size() / 3;
-    size_t meshletCount = meshopt_buildMeshlets(&meshlets[0], &vertices[0], &triangles[0],
+    const size_t meshletCount = meshopt_buildMeshlets(&meshlets[0], &vertices[0], &triangles[0],
         indices.data(), indices.size(), positions.data(), vertexCount, sizeof(float) * 3, maxVertices, maxTriangles, coneWeight);
 
     const meshopt_Meshlet& lastElement = meshlets[meshletCount - 1];
@@ -788,10 +905,10 @@ void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positio
     BuildMeshlets(indices, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal, meshID);
 
     // Add to geometry pool.
-    auto prevMeshletsSize = meshlets.size();
-    auto prevMeshletIndicesSize  = meshletTriangles.size();
-    auto prevMeshletVerticesSize = meshletVertices.size();
-    auto prevMeshletBoundsSize   = meshletBounds.size();
+    const auto prevMeshletsSize = meshlets.size();
+    const auto prevMeshletIndicesSize  = meshletTriangles.size();
+    const auto prevMeshletVerticesSize = meshletVertices.size();
+    const auto prevMeshletBoundsSize   = meshletBounds.size();
 
     meshlets.resize(meshletsLocal.size() + prevMeshletsSize);
     for (size_t i = 0; i < meshletsLocal.size(); i++) {
@@ -812,324 +929,77 @@ void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positio
     std::memcpy(&meshletBounds[meshletBounds.size() - boundsLocal.size()], boundsLocal.data(), sizeof(MeshletBounds) * boundsLocal.size());
 }
 
-template<typename T>
-GPUBuffer Renderer::UploadData(std::span<T> data) {
-    const auto size = sizeof(T) * data.size();
-
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    auto stageBuffer = CreateAllocatedBuffer(allocator, size,
-        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, data.data(), size);
-
-    std::function<void()> func = [&]() {
-        auto region = vk::BufferCopy()
-            .setSize(size);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-        };
-    SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return GPUBuffer{ buffer.buffer, device.device.getBufferAddress(addressInfo), buffer.alloc, buffer.info };
-}
-template<typename T>
-GPUBuffer Renderer::UploadData(T&& data) {
-    const auto size = sizeof(T);
-
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    auto stageBuffer = CreateAllocatedBuffer(allocator, size,
-        vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, &data, size);
-
-    std::function<void()> func = [&]() {
-        auto region = vk::BufferCopy()
-            .setSize(size);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-        };
-    SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return GPUBuffer{ buffer, device.device.getBufferAddress(addressInfo) };
-}
-
-GPUBuffer Renderer::CreateEmptyBuffer(size_t size) {
-    auto buffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eStorageBuffer |
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-    auto addressInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(buffer.buffer);
-
-    return GPUBuffer{ buffer.buffer, device.device.getBufferAddress(addressInfo), buffer.alloc, buffer.info };
-}
-
-template<typename T>
-void Renderer::UpdateBuffer(GPUBuffer& buffer, std::span<T> data, AllocatedBuffer& stageBuffer, size_t offset) {
-    const auto size = sizeof(T) * data.size();
-
-    stageBuffer = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto byteData = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-    std::memcpy(byteData, data.data(), size);
-
-    auto region = vk::BufferCopy()
-        .setSize(size)
-        .setDstOffset(offset);
-    graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, buffer.buffer, region);
-
-    //vmaDestroyBuffer(allocator, StageBuffer.buffer, StageBuffer.alloc);
-
-    auto barrier = vk::MemoryBarrier2()
-        .setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
-        .setSrcStageMask(vk::PipelineStageFlagBits2::eCopy)
-        .setDstStageMask(vk::PipelineStageFlagBits2::eCopy)
-        .setDstAccessMask(vk::AccessFlagBits2::eTransferWrite);
-    auto depInfo = vk::DependencyInfo()
-        .setMemoryBarriers(barrier);
-    graphCompCmdBuffers[currentFrame].pipelineBarrier2(depInfo);
-}
-GPUBuffer Renderer::UploadMesh(std::span<Vertex> vertices) {
-    // GPU only buffers.
-    const size_t vertSize = vertices.size() * sizeof(Vertex);
-
-    auto vertBuffer = CreateAllocatedBuffer(allocator, vertSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst |
-        vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_GPU_ONLY);
-
-    auto vertInfo = vk::BufferDeviceAddressInfo()
-        .setBuffer(vertBuffer.buffer);
-
-    GPUBuffer meshbuffer{
-        vertBuffer.buffer,
-        device.device.getBufferAddress(vertInfo),
-        vertBuffer.alloc,
-        vertBuffer.info
-    };
-
-    // Temporary CPU buffer for sending data.
-    AllocatedBuffer stageBuffer = CreateAllocatedBuffer(allocator, vertSize, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_ONLY);
-    auto data = static_cast<std::byte*>(stageBuffer.alloc->GetMappedData());
-
-    std::memcpy(data, vertices.data(), vertSize);
-
-    std::function<void()> func = [&]() {
-        auto vertRegion = vk::BufferCopy()
-            .setSize(vertSize);
-        graphCompCmdBuffers[currentFrame].copyBuffer(stageBuffer.buffer, meshbuffer.buffer, vertRegion);
-    };
-    SubmitImmediate(func);
-
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-    vmaDestroyBuffer(allocator, stageBuffer.buffer, stageBuffer.alloc);
-
-    return meshbuffer;
-}
-
-AllocatedImage Renderer::CreateImage(vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, vk::ImageSubresourceRange subresource, bool makeMipmaps) {
-    uint32_t mipLevelCount = 1;
-    if (makeMipmaps)
-        mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
-
-    auto imageInfo = vk::ImageCreateInfo()
-        .setArrayLayers(1)
-        .setExtent(vk::Extent3D(extend, 1))
-        .setFlags(vk::ImageCreateFlags())
-        .setFormat(format)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setMipLevels(mipLevelCount)
-        .setUsage(usage)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined)
-        .setImageType(vk::ImageType::e2D)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setQueueFamilyIndices(0);
-    
-    VmaAllocationCreateInfo imageAllocCreateInfo = {};
-    imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    imageAllocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-    vk::Image image;
-    VmaAllocation alloc;
-    auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&image), &alloc, nullptr);
-    
-    vk::ImageView imageView;
-    imageView = CreateImageView(image, format, subresource);
-    
-    return {image, imageView, nearestSampler, alloc};
-}
-void Renderer::CreateDepthStencilImage(vk::Extent2D extend, vk::ImageSubresourceRange depthSubresource, vk::ImageSubresourceRange stencilSubresource) {
-    // Get supported depth format.
-    std::array<vk::Format, 2> depthFormats = {
-        //vk::Format::eD32Sfloat,
-        //vk::Format::eD32SfloatS8Uint,
-        vk::Format::eD24UnormS8Uint
-    };
-    vk::Format depthStencilFormat;
-    for (auto& f : depthFormats) {
-        auto properties = device.physicalDevice.getFormatProperties(f);
-        if (properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
-            depthStencilFormat = f;
-            break;
-        }
-    }
-
-    uint32_t mipLevelCount = 1;
-    //if (makeMipmaps)
-    //    mipLevelCount = static_cast<uint32_t>(std::floor(std::log2(std::max(extend.height, extend.width)))) + 1;
-
-    std::array<uint32_t, 2> queueFamilyIndices = {
-        device.graphicsComputeQueueFamilyIndex,
-        device.computeQueueFamilyIndex
-    };
-
-    auto imageInfo = vk::ImageCreateInfo()
-        .setArrayLayers(1)
-        .setExtent(vk::Extent3D(extend, 1))
-        .setFlags(vk::ImageCreateFlags())
-        .setFormat(depthStencilFormat/*/vk::Format::eD24UnormS8Uint*/)
-        .setSamples(vk::SampleCountFlagBits::e1)
-        .setMipLevels(mipLevelCount)
-        .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled)
-        .setSharingMode(vk::SharingMode::eExclusive)
-        .setInitialLayout(vk::ImageLayout::eUndefined)
-        .setImageType(vk::ImageType::e2D)
-        .setTiling(vk::ImageTiling::eOptimal)
-        .setQueueFamilyIndices(queueFamilyIndices);
-
-    VmaAllocationCreateInfo imageAllocCreateInfo = {};
-    imageAllocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
-    imageAllocCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-
-    VmaAllocation alloc;
-    auto result = vmaCreateImage(allocator, reinterpret_cast<VkImageCreateInfo*>(&imageInfo), &imageAllocCreateInfo, reinterpret_cast<VkImage*>(&depthStencilImage), &alloc, nullptr);
-
-    depthImageView = CreateImageView(depthStencilImage, depthStencilFormat, depthSubresource);
-    stencilImageView = CreateImageView(depthStencilImage, depthStencilFormat, stencilSubresource);
-}
-AllocatedImage Renderer::CreateUploadImage(void* data, vk::Format format, vk::Extent2D extend, vk::ImageUsageFlags usage, bool makeMipmaps) {
-
-    size_t size = extend.height * extend.width * 4;
-    auto upload = CreateAllocatedBuffer(allocator, size, vk::BufferUsageFlagBits::eTransferSrc, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-    auto subresourceRange = vk::ImageSubresourceRange()
-        .setAspectMask(vk::ImageAspectFlagBits::eColor)
-        .setBaseMipLevel(0)
-        .setBaseArrayLayer(0)
-        .setLayerCount(1)
-        .setLevelCount(1);
-    
-    std::memcpy(upload.info.pMappedData, data, size);
-    auto image = CreateImage(format, extend, usage | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eTransferSrc, subresourceRange, makeMipmaps);
-    
-    std::function<void()> func = [&]() {
-        TransitionImage(graphCompCmdBuffers[currentFrame], image.image, swapchain.subresourceRange, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal,
-            vk::AccessFlagBits2::eNone, vk::AccessFlagBits2::eTransferWrite);
-
-        auto imageSubresource = vk::ImageSubresourceLayers()
-            .setAspectMask(vk::ImageAspectFlagBits::eColor)
-            .setMipLevel(0)
-            .setBaseArrayLayer(0)
-            .setLayerCount(1);
-        auto imageCopy = vk::BufferImageCopy()
-            .setBufferOffset(0)
-            .setBufferImageHeight(0)
-            .setBufferRowLength(0)
-            .setImageExtent(vk::Extent3D(extend, 1))
-            .setImageSubresource(imageSubresource);
-
-        graphCompCmdBuffers[currentFrame].copyBufferToImage(upload.buffer, image.image, vk::ImageLayout::eTransferDstOptimal, imageCopy);
-        TransitionImage(graphCompCmdBuffers[currentFrame], image.image, swapchain.subresourceRange, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal,
-            vk::AccessFlagBits2::eTransferWrite, vk::AccessFlagBits2::eShaderSampledRead);
-    };
-    SubmitImmediate(func);
-    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
-
-    return image;
-}
-
-vk::ImageView Renderer::CreateImageView(const vk::Image& image, const vk::Format& format, const vk::ImageSubresourceRange& subresource) {
-    auto identity = vk::ComponentSwizzle::eIdentity;
-    auto compMapping = vk::ComponentMapping()
-        .setA(identity)
-        .setB(identity)
-        .setG(identity)
-        .setR(identity);
-
-    auto imageViewInfo = vk::ImageViewCreateInfo()
-        .setComponents(compMapping)
-        .setViewType(vk::ImageViewType::e2D)
-        .setFormat(format)
-        .setImage(image)
-        .setSubresourceRange(subresource);
-    return device.device.createImageView(imageViewInfo);
-}
-
 void Renderer::CreateDebugTextures() {
-    uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
-    uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
-    uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
-    std::array<uint32_t, 16 * 16> checkerboardData;
+    const uint32_t magenta = glm::packUnorm4x8(glm::vec4(1, 0, 1, 1));
+    const uint32_t black = glm::packUnorm4x8(glm::vec4(0, 0, 0, 0));
+    const uint32_t white = glm::packUnorm4x8(glm::vec4(1, 1, 1, 1));
+    std::array<uint32_t, 16 * 16> checkerboardData{};
     for (size_t x = 0; x < 16; x++)
         for (size_t y = 0; y < 16; y++)
             checkerboardData[y * 16 + x] = ((x % 2) ^ (y % 2)) ? magenta : black;
-    textures.emplace_back(CreateUploadImage(checkerboardData.data(), vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 16, 16 }, vk::ImageUsageFlagBits::eSampled));
-    textures.emplace_back(CreateUploadImage(&black, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
-    textures.emplace_back(CreateUploadImage(&white, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ 1, 1 }, vk::ImageUsageFlagBits::eSampled));
+    textures.emplace_back(CreateAllocatedImage(device.device, allocator, vk::Extent2D{ 16, 16 }, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eSampled, nearestSampler));
+    textures.emplace_back(CreateAllocatedImage(device.device, allocator, vk::Extent2D{ 1, 1 }, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eSampled, nearestSampler));
+    textures.emplace_back(CreateAllocatedImage(device.device, allocator, vk::Extent2D{ 1, 1 }, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eSampled, nearestSampler));
+
+    auto uploader = Uploader(allocator);
+    uploader.StageUpload(textures[0], checkerboardData.data(), 16*16*4);
+    uploader.StageUpload(textures[1], &black, 4);
+    uploader.StageUpload(textures[2], &white, 4);
+    const std::function func = [&] {
+        stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
+    };
+    SubmitImmediate(func);
+    vmaDestroyBuffer(allocator, stageBuffers[0].buffer, stageBuffers[0].alloc);
+    device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
+
     materialIndexGroups.emplace_back(0, 1, 1);
 }
 
 // Temporary functions.
 void Renderer::PushConstant_Draw() {
-    SceneInfo sceneInfo;
+    SceneInfo sceneInfo{};
     sceneInfo.pointLightCount = pointLights.size();
     sceneInfo.spotLightCount  = spotLights.size();
     sceneInfo.dirLightCount   = dirLights.size();
     sceneInfo.meshCount    = meshViews.size();
-    sceneInfo.windowWidth  = (float)swapchain.renderExtend.width;
-    sceneInfo.windowHeight = (float)swapchain.renderExtend.height;
-    sceneInfo.tileCountX   = (uint32_t)((swapchain.renderExtend.width  + (swapchain.renderExtend.width  % 16)) / 16);
-    sceneInfo.tileCountY   = (uint32_t)((swapchain.renderExtend.height + (swapchain.renderExtend.height % 16)) / 16);
+    sceneInfo.windowWidth  = swapchain.renderExtend.width;
+    sceneInfo.windowHeight = swapchain.renderExtend.height;
+    sceneInfo.tileCountX   = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.width)  / 16.f));
+    sceneInfo.tileCountY   = static_cast<uint32_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f));
 
     const auto uploadCamPos = glm::vec4(position, 1);
     const auto invProj = glm::inverse(proj);
     const auto invView = glm::inverse(view);
 
     auto uploader = Uploader(allocator);
-    uploader.StageUpload(viewAddress, view);
-    uploader.StageUpload(invProjAddress, invProj);
-    uploader.StageUpload(invViewAddress, invView);
-    uploader.StageUpload(camPosAddress, uploadCamPos);
-    uploader.StageUpload(sceneInfoAddress, sceneInfo);
-    uploader.StageUpload(projViewAddress, projViewTransform);
+    uploader.StageUpload(viewBuffer, view);
+    uploader.StageUpload(invProjBuffer, invProj);
+    uploader.StageUpload(invViewBuffer, invView);
+    uploader.StageUpload(camPosBuffer, uploadCamPos);
+    uploader.StageUpload(sceneInfoBuffer, sceneInfo);
+    uploader.StageUpload(projViewBuffer, projViewTransform);
 
     if (!freezeFrustum) {
-        auto frustumSpan = std::span<Vertex>(vertices).subspan(0, 6);
+        const auto frustumSpan = std::span(vertices).subspan(0, 6);
         uploader.StageUpload(vertexBuffer.buffer, frustumSpan);
     }
-    stageBuffers[currentFrame] = uploader.Upload(graphCompCmdBuffers[currentFrame]);
+    stageBuffers[currentFrame] = uploader.Upload(graphCompCmdBuffers[currentFrame], device.device);
 
-    PushConstantData pushConstant{
-        projViewAddress.address,
-        viewAddress.address,
-        invProjAddress.address,
-        invViewAddress.address,
-        camPosAddress.address,
-        sceneInfoAddress.address,
+    const PushConstantData pushConstant{
+        projViewBuffer.address,
+        viewBuffer.address,
+        invProjBuffer.address,
+        invViewBuffer.address,
+        camPosBuffer.address,
+        sceneInfoBuffer.address,
         vertexBuffer.address,
-        meshletsAddress.address,
-        meshletVerticesAddress.address,
-        meshletTrianglesAddress.address,
-        meshletBoundsAddress.address,
-        meshViewBufferAddress.address,
-        materialBufferAddress.address,
-        lightBufferAddress.address
+        meshletsBuffer.address,
+        meshletVerticesBuffer.address,
+        meshletTrianglesBuffer.address,
+        meshletBoundsBuffer.address,
+        meshViewBuffer.address,
+        materialBuffer.address,
+        lightBuffer.address
     };
     graphCompCmdBuffers[currentFrame].pushConstants(pipelineLayout, vk::ShaderStageFlagBits::eTaskEXT | vk::ShaderStageFlagBits::eMeshEXT | vk::ShaderStageFlagBits::eFragment | vk::ShaderStageFlagBits::eCompute, 0, sizeof(PushConstantData), &pushConstant);
 }
@@ -1140,7 +1010,8 @@ void Renderer::ImGui_Draw(double frameTime) {
 
     ImGui::Text(std::format("X: {:.4f} Y: {:.4f} Z {:.4f}", position.x, position.y, position.z).c_str());
     ImGui::Text(std::format("{:.3f} ms | {:.1f} fps\n", frameTime, 1000 / frameTime).c_str());
-    requestNewSwapchain = ImGui::Checkbox("Toggle Vsync", &doVsync);
+    if (ImGui::Checkbox("Toggle Vsync", &doVsync))
+        requestNewSwapchain = true;
     ImGui::Checkbox("Freeze frustum", &freezeFrustum);
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
     if (doLightCulling)
@@ -1149,26 +1020,27 @@ void Renderer::ImGui_Draw(double frameTime) {
         ImGui::Checkbox("   Use experimental shader", &useForwardPlusTestShader);
 }
 void Renderer::LoadModels_Init() {
+    auto uploader = Uploader(allocator);
     parser = fastgltf::Parser(fastgltf::Extensions::KHR_lights_punctual);
 
     //auto helmetTrans = glm::mat4(1.0f);
     //helmetTrans = glm::translate(helmetTrans, glm::vec3(-5.0f, 0, 0));
-    //LoadGLTF("assets/DamagedHelmet.glb", helmetTrans);
+    //LoadGLTF("assets/DamagedHelmet.glb", uploader, helmetTrans);
     //
     //auto dragonTrans = glm::mat4(1.0f);
     //dragonTrans = glm::translate(dragonTrans, glm::vec3(5.0f, 0, 2.0f));
     //dragonTrans = glm::scale(dragonTrans, glm::vec3(0.1f));
-    //LoadGLTF("assets/stanford_dragon.glb", dragonTrans);
+    //LoadGLTF("assets/stanford_dragon.glb", uploader, dragonTrans);
     //
     //auto toyTrans = glm::mat4(1.0f);
     //toyTrans = glm::translate(toyTrans, glm::vec3(-3.0f, 0, 0));
     //toyTrans = glm::rotate<float>(toyTrans, glm::radians(-90.0f), glm::vec3(-1, 0, 0));
     //toyTrans = glm::scale(toyTrans, glm::vec3(0.005f));
-    //LoadGLTF("assets/ToyCar.glb", toyTrans);
+    //LoadGLTF("assets/ToyCar.glb", uploader, toyTrans);
     //
     //auto monkeTrans = glm::mat4(1.0f);
     //monkeTrans = glm::translate(monkeTrans, glm::vec3(-2, -4, 3));
-    //LoadGLTF("assets/monke.glb", monkeTrans);
+    //LoadGLTF("assets/monke.glb", uploader, monkeTrans);
     //
     //Many sponzas for benchmarking.
     for (size_t i = 0; i < 1; i++) {
@@ -1177,35 +1049,41 @@ void Renderer::LoadModels_Init() {
                 auto sponzaTrans = glm::mat4(1.0f);
                 sponzaTrans = glm::translate(sponzaTrans, glm::vec3(i * 40, j * 20, k * 25));
                 sponzaTrans = glm::scale(sponzaTrans, glm::vec3(0.01f));
-                LoadGLTF("assets/sponza.glb", sponzaTrans);
+                LoadGLTF("assets/sponza.glb", uploader, sponzaTrans);
             }
         }
     }
 
     auto bistroTrans = glm::mat4(1.0f);
     bistroTrans = glm::scale(bistroTrans, glm::vec3(0.001f));
-    //LoadGLTF("assets/amazon_lumberyard_bistro.glb", bistroTrans);
+    //LoadGLTF("assets/Buggy.glb", uploader, bistroTrans);
+
+    const std::function upload = [&] {
+        stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
+    };
+    SubmitImmediate(upload);
+    vmaDestroyBuffer(allocator, stageBuffers[0].buffer, stageBuffers[0].alloc);
 
     std::cout << "\nLoaded all models.\n";
     std::cout << "Size of all vertices: " << sizeof(Vertex) * vertices.size() << " Bytes\n";
 }
 void Renderer::SpawnLights_Init() {
     // xyz: 20 0 25 "Centre"
-    const auto centre = glm::vec3(20, 0, 25);
+    constexpr auto centre = glm::vec3(20, 0, 25);
     std::random_device randomDevice;
-    auto ranGen = std::mt19937(3529725061);
+    auto ranGen = std::mt19937(3529725061); //NOLINT
 
-    std::uniform_int_distribution<int> posxzDistrib(-10, 60);
-    std::uniform_int_distribution<int> posyDistrib(-10, 20);
-    std::uniform_int_distribution<int> rangeDistrib(5, 30);
+    std::uniform_int_distribution posxzDistrib(-10, 60);
+    std::uniform_int_distribution posyDistrib(-10, 20);
+    std::uniform_int_distribution rangeDistrib(5, 30);
     std::uniform_real_distribution<float> colorDistrib(0, 1);
     for (size_t i = 0; i < 100; i++) {
         const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
         const auto dir = centre - pos;
 
-        Light sl;
+        Light sl{};
         sl.pos         = pos;
-        sl.radius      = rangeDistrib(ranGen);
+        sl.radius      = static_cast<float>(rangeDistrib(ranGen));
         sl.lightDir    = glm::vec4(glm::normalize(dir), 1);
         sl.color       = glm::vec3(1);
         sl.falloff     = 0.0f;
@@ -1217,15 +1095,15 @@ void Renderer::SpawnLights_Init() {
     for (size_t i = 0; i < 100; i++) {
         const auto pos = glm::vec3(posxzDistrib(ranGen), posyDistrib(ranGen), posxzDistrib(ranGen));
 
-        Light pl;
+        Light pl{};
         pl.pos = pos;
-        pl.radius = rangeDistrib(ranGen);
+        pl.radius = static_cast<float>(rangeDistrib(ranGen));
         pl.color = glm::vec3(colorDistrib(ranGen), colorDistrib(ranGen), colorDistrib(ranGen));
         pl.falloff = 0.0f;
         pl.lightType = 0;
         pointLights.emplace_back(pl);
     }
-    Light pl;
+    Light pl{};
     pl.pos     = glm::vec3(20.0f, 0.0f, 0.0f);
     pl.radius  = 25.0f;
     pl.color   = glm::vec3(0.0f, 0.2f, 0.5f);
@@ -1233,63 +1111,28 @@ void Renderer::SpawnLights_Init() {
     pl.lightType = 0;
     pointLights.emplace_back(pl);
 
-    Light dl;
+    Light dl{};
     dl.color     = glm::vec3(0.95f, 0.95f, 0.6f);
     dl.lightDir  = glm::vec4(-1.0f, -1.0f, -1.0f, 1);
     dl.lightType = 2;
     dirLights.emplace_back(dl);
-}
-void Renderer::UploadAll_Init() {
-    // Upload geometry and material indices.
-    if (vertices.size() > 0)
-        vertexBuffer = UploadMesh(vertices);
-    if (meshViews.size() > 0)
-        meshViewBufferAddress = UploadData<MeshView>(meshViews);
-    if (meshletBounds.size() > 0)
-        meshletBoundsAddress = UploadData<MeshletBounds>(meshletBounds);
-    if (meshlets.size() > 0)
-        meshletsAddress = UploadData<meshopt_Meshlet>(meshlets);
-    if (meshletVertices.size() > 0)
-        meshletVerticesAddress = UploadData<uint32_t>(meshletVertices);
-    if (meshletTriangles.size() > 0)
-        meshletTrianglesAddress = UploadData<uint8_t>(meshletTriangles);
 
-    projViewAddress  = CreateEmptyBuffer(sizeof(glm::mat4));
-    viewAddress      = CreateEmptyBuffer(sizeof(glm::mat4));
-    invProjAddress   = CreateEmptyBuffer(sizeof(glm::mat4));
-    invViewAddress   = CreateEmptyBuffer(sizeof(glm::mat4));
-    camPosAddress    = CreateEmptyBuffer(sizeof(glm::vec4));
-    sceneInfoAddress = CreateEmptyBuffer(sizeof(SceneInfo));
-
-    // Upload materials.
-    if (materialIndexGroups.size() > 0)
-        materialBufferAddress   = UploadData<MaterialIndexGroup>(materialIndexGroups);
-    
     lights.resize(pointLights.size() + spotLights.size() + dirLights.size());
     size_t lightMemIndex = 0;
-    if(pointLights.size() > 0)
+    if(!pointLights.empty())
         std::memcpy(&lights[lightMemIndex], pointLights.data(), pointLights.size() * sizeof(Light));
     lightMemIndex += pointLights.size();
-    if (spotLights.size() > 0)
+    if (!spotLights.empty())
         std::memcpy(&lights[lightMemIndex], spotLights.data(), spotLights.size() * sizeof(Light));
     lightMemIndex += spotLights.size();
-    if (dirLights.size() > 0)
+    if (!dirLights.empty())
         std::memcpy(&lights[lightMemIndex], dirLights.data(), dirLights.size() * sizeof(Light));
-
-    if (lights.size() > 0)
-        lightBufferAddress = UploadData<Light>(lights);
 }
 void Renderer::CreateSamplers_Init() {
-    auto nearestSamplerInfo = vk::SamplerCreateInfo()
+    constexpr auto nearestSamplerInfo = vk::SamplerCreateInfo()
         .setMagFilter(vk::Filter::eNearest)
         .setMinFilter(vk::Filter::eNearest);
-    auto linearSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eLinear)
-        .setMinFilter(vk::Filter::eLinear);
-    auto nearLinSamplerInfo = vk::SamplerCreateInfo()
-        .setMagFilter(vk::Filter::eNearest)
-        .setMinFilter(vk::Filter::eNearest);
-    auto linNearSamplerInfo = vk::SamplerCreateInfo()
+    constexpr auto linearSamplerInfo = vk::SamplerCreateInfo()
         .setMagFilter(vk::Filter::eLinear)
         .setMinFilter(vk::Filter::eLinear);
 
@@ -1297,44 +1140,94 @@ void Renderer::CreateSamplers_Init() {
     linearSampler = device.device.createSampler(linearSamplerInfo);
 }
 void Renderer::CreateDescSets_Init() {
+    constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst;
+
     // Buffers.
-    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16);
-    lightIndicesBuffer  = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    lightIndicesViewSize = (lights.size() + 2) * sizeof(int);
-    lightIndicesViewBuffer = CreateAllocatedBuffer(allocator, lightIndicesViewSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
-    tileFrustumsSize = (sizeof(glm::vec4) * 6) * (std::ceil(swapchain.renderExtend.height / 16) * std::ceil(swapchain.renderExtend.width / 16) + 1);
-    tileFrustumBuffer = CreateAllocatedBuffer(allocator, tileFrustumsSize, vk::BufferUsageFlagBits::eStorageBuffer, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    // TODO: Buffers initialized before window size is known.
+    constexpr auto h = 2160U;
+    constexpr auto w = 3840U;
+    //lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f));
+    //tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1);
+    //tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(swapchain.renderExtend.height) / 16.f) * std::ceil(static_cast<float>(swapchain.renderExtend.width) / 16.f) + 1) * 2 + 4;
+    lightIndicesSize = MAX_LIGHTS_PER_TILE * sizeof(int) * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f));
+    tileFrustumsSize = 1 + sizeof(glm::vec4) * 6U * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f) + 1);
+    tileDepthsSize = sizeof(float) * static_cast<size_t>(std::ceil(static_cast<float>(h) / 16.f) * std::ceil(static_cast<float>(w) / 16.f) + 1) * 2 + 4;
+    lightIndicesViewSize = (lights.size() + 2U) * sizeof(int);
+
+    lightIndicesBuffer  = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    lightIndicesViewBuffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesViewSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    tileFrustumBuffer = CreateAllocatedBuffer(device.device, allocator, tileFrustumsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    tileDepthsBuffer = CreateAllocatedBuffer(device.device, allocator, tileDepthsSize, usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
     // Upload buffer addresses.
-    bufferAddresses.meshletsAddress = meshletsAddress.address;
-    bufferAddresses.meshletVerticesAddress = meshletVerticesAddress.address;
-    bufferAddresses.meshletTrianglesAddress = meshletTrianglesAddress.address;
-    bufferAddresses.meshletBoundsAddress = meshletBoundsAddress.address;
+    bufferAddresses.meshletsAddress = meshletsBuffer.address;
+    bufferAddresses.meshletVerticesAddress = meshletVerticesBuffer.address;
+    bufferAddresses.meshletTrianglesAddress = meshletTrianglesBuffer.address;
+    bufferAddresses.meshletBoundsAddress = meshletBoundsBuffer.address;
 
-    bufferAddresses.meshViewBufferAddress = meshViewBufferAddress.address;
+    bufferAddresses.meshViewBufferAddress = meshViewBuffer.address;
     bufferAddresses.vertexBufferAddress = vertexBuffer.address;
-    bufferAddresses.materialBufferAddress = materialBufferAddress.address;
-    bufferAddresses.lightBufferAddress = lightBufferAddress.address;
+    bufferAddresses.materialBufferAddress = materialBuffer.address;
+    bufferAddresses.lightBufferAddress = lightBuffer.address;
 
-    bufferAddressBuffer.buffer = CreateAllocatedBuffer(allocator, lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).buffer;
-    std::vector bufferAddressesVec = { bufferAddresses };
+    addressBuffer.buffer = CreateAllocatedBuffer(device.device, allocator, lightIndicesSize, vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE).buffer;
 
-    const std::function<void()> addresses = [&]() { UpdateBuffer<BufferAddresses>(bufferAddressBuffer, bufferAddressesVec, stageBuffers[0]); };
-    SubmitImmediate(addresses);
+    meshletBoundsBuffer    = CreateAllocatedBuffer(device.device, allocator, sizeof(MeshletBounds) * meshletBounds.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletsBuffer         = CreateAllocatedBuffer(device.device, allocator, sizeof(meshopt_Meshlet) * meshlets.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletVerticesBuffer  = CreateAllocatedBuffer(device.device, allocator, sizeof(uint32_t) * meshletVertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshletTrianglesBuffer = CreateAllocatedBuffer(device.device, allocator, sizeof(uint8_t) * meshletTriangles.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    lightBuffer      = CreateAllocatedBuffer(device.device, allocator, sizeof(Light) * lights.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    materialBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(MaterialIndexGroup) * materialIndexGroups.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    meshViewBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(MeshView) * meshViews.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    vertexBuffer     = CreateAllocatedBuffer(device.device, allocator, sizeof(Vertex) * vertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    dirShadowTransBuffer = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    projViewBuffer  = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    viewBuffer      = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    invProjBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    invViewBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    camPosBuffer    = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+    sceneInfoBuffer = CreateAllocatedBuffer(device.device, allocator, sizeof(SceneInfo), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+
+    constexpr auto near  = 0.01f;
+    constexpr auto far   = 4000.0f;
+    const auto dirOrtho = glm::orthoRH_ZO(-35.0f, 35.0f, -35.0f, 35.0f, near, far);
+    const auto dirLightView = glm::lookAt(10.0f * glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    dirShadowTrans = dirOrtho * dirLightView;
+
+    auto uploader = Uploader(allocator);
+    uploader.StageUpload(addressBuffer, bufferAddresses);
+    uploader.StageUpload(vertexBuffer, vertices);
+    uploader.StageUpload(meshViewBuffer, meshViews);
+    uploader.StageUpload(meshletBoundsBuffer, meshletBounds);
+    uploader.StageUpload(meshletsBuffer, meshlets);
+    uploader.StageUpload(meshletVerticesBuffer, meshletVertices);
+    uploader.StageUpload(meshletTrianglesBuffer, meshletTriangles);
+    uploader.StageUpload(materialBuffer, materialIndexGroups);
+    uploader.StageUpload(lightBuffer, lights);
+    uploader.StageUpload(dirShadowTransBuffer, dirShadowTrans);
+
+    const std::function upload = [&] {
+        stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
+    };
+    SubmitImmediate(upload);
     vmaDestroyBuffer(allocator, stageBuffers[0].buffer, stageBuffers[0].alloc);
 
     depthImage.sampler = nearestSampler;
-    depthImage.image = depthStencilImage;
-    depthImage.view = depthImageView;
+
+    shadowMapImage = CreateAllocatedImage(device.device, allocator, SHADOW_MAP_RESOLUTION, SHADOW_MAP_RESOLUTION, vk::Format::eD32Sfloat, vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled, nearestSampler);
 
     descriptors = Descriptors();
     descriptors.AddImageDescriptor(textures, vk::ImageLayout::eGeneral, 0);
     descriptors.AddImageDescriptor(depthImage, vk::ImageLayout::eDepthReadOnlyOptimal, 1);
+    descriptors.AddImageDescriptor(shadowMapImage, vk::ImageLayout::eDepthReadOnlyOptimal, 5);
     descriptors.AddBufferDescriptor(lightIndicesBuffer.buffer, lightIndicesSize, vk::DescriptorType::eStorageBuffer, 2);
     descriptors.AddBufferDescriptor(tileFrustumBuffer.buffer, tileFrustumsSize, vk::DescriptorType::eStorageBuffer, 4);
-    descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 5);
+    descriptors.AddBufferDescriptor(dirShadowTransBuffer.buffer, sizeof(glm::mat4), vk::DescriptorType::eUniformBuffer, 6);
+    descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 7);
+    descriptors.AddBufferDescriptor(tileDepthsBuffer.buffer, tileDepthsSize, vk::DescriptorType::eStorageBuffer, 8);
 
-    const std::function<void()> descFunc = [&]() { descriptors.CreateSetsAndWriteDescriptors(device.device); };
+    const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);
     device.device.resetCommandPool(graphicsComputeCommand.cmdPool);
 }

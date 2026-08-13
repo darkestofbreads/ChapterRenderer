@@ -1,8 +1,8 @@
 #pragma once
 #include <vulkan/vulkan.hpp>
-#include <slang.h>
-#include <slang-com-ptr.h>
-#include <slang-com-helper.h>
+#include <slang/slang.h>
+#include <slang/slang-com-ptr.h>
+#include <slang/slang-com-helper.h>
 
 #include <fstream>
 #include <iostream>
@@ -20,18 +20,18 @@
 template<class T>
 std::vector<T> ReadShaderFile(const char* fileName);
 void DiagnoseSlang(slang::IBlob* diagnosticsBlob);
-std::string CompileSlangToSPIRV(std::string computeShaderFileNameSlang);
+std::string CompileSlangToSPIRV(std::string slangName);
 
-vk::ShaderEXT MakeSingleShaderObjSlang(vk::Device& device,
-    const char* slangFileName, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage, std::string entryPoint);
-vk::ShaderEXT MakeSingleShaderObj(vk::Device& device,
-    const char* shaderFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage);
+vk::ShaderEXT MakeSingleShaderObjSlang(const vk::Device& device,
+    const char* slangFileName, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage, const std::string& entryPoint);
+vk::ShaderEXT MakeSingleShaderObj(const vk::Device& device,
+    const char* shaderFileNameSPIRV, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout, vk::ShaderStageFlagBits stage);
 
-std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(vk::Device& device,
-    const char* slangFileName, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
+std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjectsSlang(const vk::Device& device,
+    const char* slangFileName, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
 
-vk::ShaderEXT MakeComputeShaderObject(vk::Device& device, const char* computeShaderFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
-vk::ShaderEXT MakeComputeShaderObjectSlang(vk::Device& device, const char* computeShaderFileNameSlang, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
+vk::ShaderEXT MakeComputeShaderObject(const vk::Device& device, const char* computeShaderFileNameSPIRV, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
+vk::ShaderEXT MakeComputeShaderObjectSlang(const vk::Device& device, const char* slangFileName, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
 
-std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(vk::Device& device,
-    const char* taskShaderFileNameSPIRV, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV, vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
+std::vector<vk::ShaderEXT> MakeTaskMeshShaderObjects(const vk::Device& device,
+    const char* taskShaderFileNameSPIRV, const char* meshShaderFileNameSPIRV, const char* fragmentFileNameSPIRV, const vk::detail::DispatchLoaderDynamic& dl, vk::PushConstantRange& range, std::span<vk::DescriptorSetLayout> setLayout);
