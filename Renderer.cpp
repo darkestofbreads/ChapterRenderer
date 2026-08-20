@@ -1,4 +1,4 @@
-#define STB_IMAGE_IMPLEMENTATION
+//#define STB_IMAGE_IMPLEMENTATION
 #define VMA_IMPLEMENTATION
 
 #include "Renderer.h"
@@ -608,58 +608,6 @@ void Renderer::InitMainObjects(SDL_Window* window, std::atomic<bool>* ready) {
     graphCompCmdBuffers = graphicsComputeCommand.GetCommandBuffers();
 }
 
-// Read 3D model
-template<typename T>
-std::vector<T> ReadAttribute(const fastgltf::Asset& asset, const fastgltf::Primitive& primitive, std::string_view Attribute) {
-    const auto& iterator = primitive.findAttribute(Attribute);
-    assert(iterator != nullptr);
-
-    const auto& acr = asset.accessors[iterator->accessorIndex];
-    const auto& bufferView = asset.bufferViews[acr.bufferViewIndex.value()];
-
-    const auto& buffer = asset.buffers[bufferView.bufferIndex];
-    const auto& data = get<fastgltf::sources::Array>(buffer.data);
-
-    std::vector<T> out(acr.count);
-    std::memcpy(out.data(), data.bytes.data() + bufferView.byteOffset + acr.byteOffset, acr.count * sizeof(T));
-    return out;
-}
-uint32_t Renderer::ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const {
-    const auto& texture          = asset.textures[imageInfo.textureIndex];
-    const auto& image            = asset.images[texture.imageIndex.value()];
-    const auto& sourceBufferView = get<fastgltf::sources::BufferView>(image.data);
-    
-    const auto& imageBufferView  = asset.bufferViews[sourceBufferView.bufferViewIndex];
-    const auto& imageBuffer      = asset.buffers[imageBufferView.bufferIndex];
-    const auto& imageData        = get<fastgltf::sources::Array>(imageBuffer.data);
-
-    std::vector<unsigned char> imageChars(imageBufferView.byteLength);
-    std::memcpy(imageChars.data(), imageData.bytes.data() + imageBufferView.byteOffset, imageBufferView.byteLength);
-    if (sourceBufferView.mimeType == fastgltf::MimeType::JPEG || sourceBufferView.mimeType == fastgltf::MimeType::PNG) {
-        int width, height, comp;
-        const std::shared_ptr<void> pixels(
-            stbi_load_from_memory(imageChars.data(), static_cast<int>(imageBufferView.byteLength), &width, &height, &comp, STBI_rgb_alpha),
-            stbi_image_free
-        );
-
-        //txtrs.emplace_back(CreateUploadImage(pixels.get(), vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ static_cast<uint32_t>(width), static_cast<uint32_t>(height) }, vk::ImageUsageFlagBits::eSampled));
-        txtrs.emplace_back(CreateAllocatedImage(device.device, allocator, width, height, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eSampled, nearestSampler));
-        uploader.StageUpload(txtrs[txtrs.size()-1], pixels, width*height*4);
-    }
-    else if (sourceBufferView.mimeType == fastgltf::MimeType::KTX2) {
-        //ktxTexture* textureKTX;
-        //const auto& result = ktxTexture_CreateFromMemory(imageChars.data(), imageChars.size(), KTX_TEXTURE_CREATE_CHECK_GLTF_BASISU_BIT, &textureKTX);
-        //if (!result)
-        //    return 0;
-        //pixels = ktxTexture_GetData(textureKTX);
-        //textures.emplace_back(CreateUploadImage(pixels, vk::Format::eR8G8B8A8Unorm, vk::Extent2D{ textureKTX->baseWidth, textureKTX->baseHeight }, vk::ImageUsageFlagBits::eSampled));
-        //ktxTexture_Destroy(textureKTX);
-        return 0;
-    }
-    else
-        return 0;
-    return txtrs.size() - 1;
-}
 void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices, std::vector<float>& positions) {
     std::vector<uint32_t> remap(indices.size());
     std::vector<uint32_t> newIndices(indices.size());
@@ -695,102 +643,22 @@ void OptimizeMesh(std::vector<uint32_t>& indices, std::vector<Vertex>& vertices,
 void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform) {
     auto total = Timer();
     auto parts = Timer();
-    auto data = fastgltf::GltfDataBuffer::FromPath(path);
-    if (auto error = data.error(); error != fastgltf::Error::None) {
-        std::cout << fastgltf::getErrorMessage(error) << "\n";
-        throw;
-    }
-    std::cout << "Took " << parts.GetMilliseconds() << " ms to open file." << "\n";
-    parts.Reset();
-    auto gltf = parser.loadGltf(data.get(), path.parent_path());
-    if (auto error = gltf.error(); error != fastgltf::Error::None) {
-        std::cout << fastgltf::getErrorMessage(error) << "\n";
-        throw;
-    }
-    auto asset = std::move(gltf.get());
-
-#if defined(_DEBUG)
-    if (auto error = fastgltf::validate(asset); error != fastgltf::Error::None) {
-        std::cout << fastgltf::getErrorMessage(error) << "\n";
-        throw;
-    }
-#endif
+    auto model = GLTF(path);
 
     std::cout << "Took " << parts.GetMilliseconds() << " ms to load file." << "\n";
     parts.Reset();
 
     auto normalTransform = glm::mat3(glm::transpose(glm::inverse(transform)));
 
-    for (const auto& node : asset.nodes) {
-        // Load light.
-        if (node.lightIndex.has_value()) {
-            const auto& light = asset.lights[node.lightIndex.value()];
-            const auto& nodeData = get<fastgltf::TRS>(node.transform);
-            Light l{};
-            switch (light.type) {
-            case fastgltf::LightType::Point:
-                l.lightType = 0;
-                l.color   = glm::vec3(light.color.x(), light.color.y(), light.color.z());
-                l.pos     = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
-                l.falloff = 0;
-                l.radius  = 100;
-                if (light.range.has_value())
-                    l.radius = light.range.value();
-
-                pointLights.emplace_back(l);
-                break;
-            case fastgltf::LightType::Spot:
-                l.color       = glm::vec3(light.color.x(), light.color.y(), light.color.z());
-                l.pos         = glm::vec3(transform * glm::vec4(nodeData.translation.x(), nodeData.translation.y(), nodeData.translation.z(), 1));
-                //sl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
-                l.falloff     = 0;
-                l.cutoff      = glm::radians(light.outerConeAngle.value());
-                l.innerCutoff = glm::radians(light.innerConeAngle.value());
-                
-                l.radius = 100;
-                if (light.range.has_value())
-                    l.radius = light.range.value();
-                //spotLights.emplace_back(sl);
-                break;
-            case fastgltf::LightType::Directional:
-                l.color = glm::vec4(light.color.x(), light.color.y(), light.color.z(), 1);
-                //dl.lightDir = glm::fquat(nodeData.rotation.w(), nodeData.rotation.x(), nodeData.rotation.y(), nodeData.rotation.z());
-                //dirLights.emplace_back(dl);
-                break;
-            }
-        }
-    }
-
     // Load materials.
     std::vector<uint32_t> materialIDs;
-    std::vector<MaterialIndexGroup> matIndexGroups;
-    for (const auto& material : asset.materials) {
-        MaterialIndexGroup matIndices{};
-        const auto& pbrData = material.pbrData;
+    model.LoadMaterials(materialIDs, materialIndexGroups, textures, allocator, device.device, nearestSampler, uploader);
 
-        if (pbrData.baseColorTexture.has_value())
-            matIndices.diffuse = ParseGLTFImage(pbrData.baseColorTexture.value(), asset, textures, uploader);
-        else
-            matIndices.diffuse = 0;
-
-        if (pbrData.metallicRoughnessTexture.has_value())
-            matIndices.metallicRoughness = ParseGLTFImage(pbrData.metallicRoughnessTexture.value(), asset, textures, uploader);
-        else
-            matIndices.metallicRoughness = 1;
-
-        if (material.emissiveTexture.has_value())
-            matIndices.emissive = ParseGLTFImage(material.emissiveTexture.value(), asset, textures, uploader);
-        else
-            matIndices.emissive = 1;
-
-        materialIDs.emplace_back(materialIndexGroups.size());
-        materialIndexGroups.emplace_back(matIndices);
-    }
     std::cout << "Took " << parts.GetMilliseconds() << " ms to load materials." << "\n";
     parts.Reset();
 
     // Load meshes.
-    for (const auto& mesh : asset.meshes) {
+    for (const auto& mesh : model.asset.meshes) {
         for (const auto& primitive : mesh.primitives) {
             MeshView meshView{};
             meshView.start = vertices.size();
@@ -798,58 +666,62 @@ void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, g
             std::vector<Vertex> verticesLocal;
             // Read vertices.
             {
-                const auto& positions = ReadAttribute<glm::vec3>(asset, primitive, "POSITION");
-                const auto& normals   = ReadAttribute<glm::vec3>(asset, primitive, "NORMAL");
-                const auto& texCoords = ReadAttribute<glm::vec2>(asset, primitive, "TEXCOORD_0");
+                const auto& positions = ReadGLTFAttribute<glm::vec3>(model.asset, primitive, "POSITION");
+                const auto& normals   = ReadGLTFAttribute<glm::vec3>(model.asset, primitive, "NORMAL");
+                const auto& texCoords = ReadGLTFAttribute<glm::vec2>(model.asset, primitive, "TEXCOORD_0");
 
                 verticesLocal.resize(positions.size());
                 for (size_t i = 0; i < positions.size(); i++) {
                     const auto pos4 = transform * glm::vec4(positions[i], 1);
                     const auto pos = glm::vec3(pos4.x, pos4.y, pos4.z);
-                    verticesLocal[i] = { pos, texCoords[i].x, glm::normalize(normalTransform * normals[i]), texCoords[i].y };
+                    verticesLocal[i] = { .Position = pos, .U = texCoords[i].x, .Normal = glm::normalize(normalTransform * normals[i]), .V = texCoords[i].y };
                 }
 
                 std::cout << "Took " << parts.GetMilliseconds() << " ms to add vertices." << "\n";
                 parts.Reset();
             }
 
-            // Determine material.
+            // Determine material
             meshView.material = 0;
             if (primitive.materialIndex.has_value())
                 meshView.material = materialIDs[primitive.materialIndex.value()];
 
-            // Load indices.
+            // Load indices
             auto& indIt = primitive.indicesAccessor;
             assert(indIt.has_value());
 
-            const auto& indAcr        = asset.accessors[indIt.value()];
-            const auto& indBufferView = asset.bufferViews[indAcr.bufferViewIndex.value()];
-            const auto& indBuffer     = asset.buffers[indBufferView.bufferIndex];
+            const auto& indAcr        = model.asset.accessors[indIt.value()];
+            const auto& indBufferView = model.asset.bufferViews[indAcr.bufferViewIndex.value()];
+            const auto& indBuffer     = model.asset.buffers[indBufferView.bufferIndex];
             const auto& indData       = get<fastgltf::sources::Array>(indBuffer.data);
             
-            std::vector<uint32_t> indices(indAcr.count);
+            std::vector<uint32_t> indicesLocal(indAcr.count);
 
-            // If possible, the GLTF will use uint16 to reduce file size.
+            // If possible, the GLTF will use uint16 to reduce file size
             if (indAcr.componentType == fastgltf::ComponentType::UnsignedShort) {
                 std::vector<uint16_t> rawIndices(indAcr.count);
                 std::memcpy(rawIndices.data(), indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint16_t) * rawIndices.size());
 
                 for (size_t i = 0; i < indAcr.count; i++)
-                    indices[i] = static_cast<uint32_t>(rawIndices[i]);
+                    indicesLocal[i] = static_cast<uint32_t>(rawIndices[i]);
             }
             else
-                std::memcpy(&indices[0], indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint32_t) * indices.size());
+                std::memcpy(&indicesLocal[0], indData.bytes.data() + indAcr.byteOffset + indBufferView.byteOffset, sizeof(uint32_t) * indicesLocal.size());
 
             std::vector<float> positions;
-            OptimizeMesh(indices, verticesLocal, positions);
+            OptimizeMesh(indicesLocal, verticesLocal, positions);
 
             auto prevVerticesSize = vertices.size();
+            auto prevIndicesSize = indices.size();
             vertices.resize(prevVerticesSize + verticesLocal.size());
             std::memcpy(&vertices[prevVerticesSize], verticesLocal.data(), sizeof(Vertex) * verticesLocal.size());
+            std::memcpy(&indices[prevIndicesSize], indicesLocal.data(), sizeof(uint32_t) * indicesLocal.size());
             meshView.end   = vertices.size() - 1;
             meshView.flags = 1;
 
-            AddMeshlets(indices, positions, prevVerticesSize, meshViews.size());
+            BLASFromMesh(verticesLocal.size(), prevIndicesSize, indicesLocal.size() / 3);
+            AddMeshlets(indicesLocal, positions, prevVerticesSize, meshViews.size());
+
             meshViews.emplace_back(meshView);
         }
     }

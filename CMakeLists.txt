@@ -21,7 +21,9 @@ add_custom_target(CopyShaders
 )
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/shaders/compiled)
 
-add_executable(ChapterOne ${SOURCES})
+add_executable(ChapterOne ${SOURCES}
+        Raytracing.cpp
+        Raytracing.h)
 add_dependencies(ChapterOne CopyAssets)
 add_dependencies(ChapterOne CopyShaders)
 

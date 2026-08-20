@@ -12,6 +12,7 @@
 #include "Timer.h"
 #include "Uploader.h"
 #include "Descriptors.h"
+#include "GLTF.h"
 
 #include "stb_image.h"
 
@@ -57,12 +58,12 @@ struct MeshletBounds {
 	glm::vec3 coneDirection;
 	uint32_t flags;
 };
-struct MaterialIndexGroup {
-	uint32_t diffuse;
-	uint32_t metallicRoughness;
-	uint32_t emissive;
-	uint32_t pad;
-};
+//struct MaterialIndexGroup {
+//	uint32_t diffuse;
+//	uint32_t metallicRoughness;
+//	uint32_t emissive;
+//	uint32_t pad;
+//};
 
 struct Light {
 	glm::vec3 pos;
@@ -161,6 +162,7 @@ struct Chunk {
 	uint32_t x, y;
 };
 
+vk::AccelerationStructureKHR TLASFromBLAS(vk::AccelerationStructureKHR blasHandles, vk::Device device, uint32_t primitiveCount, const vk::detail::DispatchLoaderDynamic& dldid);
 
 class Renderer
 {
@@ -234,11 +236,12 @@ private:
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
 
-	uint32_t ParseGLTFImage(const fastgltf::TextureInfo& imageInfo, const fastgltf::Asset& asset, std::vector<AllocatedImage>& txtrs, Uploader& uploader) const;
+	vk::AccelerationStructureKHR BLASFromMesh(uint32_t meshVerticesCount, uint32_t primitiveCount, uint32_t firstIndex, uint32_t firstVertex);
 	void LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
 	AllocatedBuffer vertexBuffer;
+	AllocatedBuffer indicesBuffer;
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator{};
 
@@ -295,6 +298,7 @@ private:
 
 	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID);
 	std::vector<Vertex>			 vertices;
+	std::vector<uint32_t>		 indices;
 	std::vector<meshopt_Meshlet> meshlets;
 	std::vector<MeshletBounds>	 meshletBounds;
 	std::vector<uint32_t>		 meshletVertices;
