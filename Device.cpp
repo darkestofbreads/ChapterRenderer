@@ -30,6 +30,8 @@ Device::Device(vk::Instance& instance) {
     deviceExtensions.push_back(VK_EXT_SHADER_OBJECT_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
     //deviceExtensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME); //
     //deviceExtensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
     std::vector<bool> extensionSupported(deviceExtensions.size());
@@ -64,9 +66,11 @@ Device::Device(vk::Instance& instance) {
     //    .setPNext(&fifoLatestReadyFeatures);
 
     // KHR version explicitly required for ImGui.
+    auto accelerationStructuresFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR()
+        .setAccelerationStructure(vk::True);
     auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
-        .setDynamicRendering(vk::True);
-        //.setPNext(&unifiedImageFeatures);
+        .setDynamicRendering(vk::True)
+        .setPNext(&accelerationStructuresFeatures);
     auto shaderDerivativesFeatures = vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR()
         .setComputeDerivativeGroupLinear(vk::True)
         .setComputeDerivativeGroupQuads(vk::True)

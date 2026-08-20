@@ -714,12 +714,13 @@ void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, g
             auto prevVerticesSize = vertices.size();
             auto prevIndicesSize = indices.size();
             vertices.resize(prevVerticesSize + verticesLocal.size());
+            indices.resize(prevIndicesSize + indicesLocal.size());
             std::memcpy(&vertices[prevVerticesSize], verticesLocal.data(), sizeof(Vertex) * verticesLocal.size());
             std::memcpy(&indices[prevIndicesSize], indicesLocal.data(), sizeof(uint32_t) * indicesLocal.size());
             meshView.end   = vertices.size() - 1;
             meshView.flags = 1;
 
-            BLASFromMesh(verticesLocal.size(), prevIndicesSize, indicesLocal.size() / 3);
+            BLASFromMesh(verticesLocal.size(), indicesLocal.size() / 3, prevIndicesSize, prevVerticesSize);
             AddMeshlets(indicesLocal, positions, prevVerticesSize, meshViews.size());
 
             meshViews.emplace_back(meshView);

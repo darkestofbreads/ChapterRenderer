@@ -245,6 +245,8 @@ private:
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator{};
 
+	std::vector<AllocatedBuffer> BLASBuffers;
+
 	AllocatedBuffer meshletsBuffer;
 	AllocatedBuffer meshletBoundsBuffer;
 	AllocatedBuffer meshletVerticesBuffer;

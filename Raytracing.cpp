@@ -22,11 +22,12 @@ vk::AccelerationStructureKHR Renderer::BLASFromMesh(const uint32_t meshVerticesC
         .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
         .setGeometries(blasGeometry);
 
-    const auto blasBuildSizes = device.device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, blasBuildGeometryInfo, primitiveCount, dldid);
+    const auto blasBuildSizes = device.device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, blasBuildGeometryInfo, {primitiveCount}, dldid);
     const auto blasCreateInfo = vk::AccelerationStructureCreateInfoKHR()
         .setOffset(0)
         .setSize(blasBuildSizes.accelerationStructureSize)
-        //.setBuffer(blasBuffers[i])
+    // TODO: Buffers not initialized
+        .setBuffer(BLASBuffers[BLASBuffers.size()].buffer)
         .setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
 
     auto BLAS = device.device.createAccelerationStructureKHR(blasCreateInfo, nullptr, dldid);
