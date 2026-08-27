@@ -13,6 +13,7 @@
 #include "Uploader.h"
 #include "Descriptors.h"
 #include "GLTF.h"
+#include "Raytracing.h"
 
 #include "stb_image.h"
 
@@ -157,12 +158,16 @@ struct PushConstantData {
 	vk::DeviceAddress materialBufferAddress;
 	vk::DeviceAddress lightBufferAddress;
 };
+struct AccelerationStruct
+{
+	AllocatedBuffer buffer;
+	vk::AccelerationStructureInstanceKHR instance;
+	vk::AccelerationStructureKHR handle;
+};
 struct Chunk {
 	uint32_t blocks[32][32];
 	uint32_t x, y;
 };
-
-vk::AccelerationStructureKHR TLASFromBLAS(vk::AccelerationStructureKHR blasHandles, vk::Device device, uint32_t primitiveCount, const vk::detail::DispatchLoaderDynamic& dldid);
 
 class Renderer
 {
@@ -236,7 +241,8 @@ private:
 	// Descriptor sets.
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
 
-	vk::AccelerationStructureKHR BLASFromMesh(uint32_t meshVerticesCount, uint32_t primitiveCount, uint32_t firstIndex, uint32_t firstVertex);
+	void BuildSubMeshBLAS(uint32_t meshVerticesCount, uint32_t primitiveCount, uint32_t firstIndex, uint32_t firstVertex);
+	void BuildTLAS(uint32_t primitiveCount);
 	void LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
@@ -245,7 +251,8 @@ private:
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator{};
 
-	std::vector<AllocatedBuffer> BLASBuffers;
+	std::vector<AccelerationStruct> BLAccelerationStructs;
+	AllocatedBuffer TLASBuffer;
 
 	AllocatedBuffer meshletsBuffer;
 	AllocatedBuffer meshletBoundsBuffer;
@@ -298,7 +305,7 @@ private:
 	std::array <AllocatedBuffer, MAX_FRAMES_IN_FLIGHT> stageBuffers;
 	vk::Fence immediateFence;
 
-	void AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID);
+	void AddMeshlets(std::span<uint32_t> indicesIn, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID);
 	std::vector<Vertex>			 vertices;
 	std::vector<uint32_t>		 indices;
 	std::vector<meshopt_Meshlet> meshlets;
@@ -318,6 +325,7 @@ private:
 	std::vector<vk::ShaderEXT> forwardShaders;
 	std::vector<vk::ShaderEXT> forwardPlusShaders;
 	std::vector<vk::ShaderEXT> forwardPlusTestShaders;
+	std::vector<vk::ShaderEXT> forwardPlusRayQueryShaders;
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	std::vector<vk::ShaderEXT> shadowMapShaders;

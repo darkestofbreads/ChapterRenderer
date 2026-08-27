@@ -1,7 +1,12 @@
 #include "Raytracing.h"
-#include "Renderer.h"
 
-vk::AccelerationStructureKHR Renderer::BLASFromMesh(const uint32_t meshVerticesCount, const uint32_t primitiveCount, const uint32_t firstIndex, const uint32_t firstVertex) {
+void Renderer::BuildSubMeshBLAS(const uint32_t meshVerticesCount, const uint32_t primitiveCount, const uint32_t firstIndex, const uint32_t firstVertex) {
+    const auto identity = vk::TransformMatrixKHR()
+        .setMatrix(std::array<std::array<float, 4>, 3>{
+            {std::array{1.f, 0.f, 0.f, 0.f},
+                std::array{0.f, 1.f, 0.f, 0.f},
+                std::array{0.f, 0.f, 1.f, 0.f}}});
+
     // Prepare the geometry data
     const auto trianglesData = vk::AccelerationStructureGeometryTrianglesDataKHR()
         .setIndexData(indicesBuffer.address + firstIndex * sizeof(uint32_t))
@@ -22,16 +27,25 @@ vk::AccelerationStructureKHR Renderer::BLASFromMesh(const uint32_t meshVerticesC
         .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
         .setGeometries(blasGeometry);
 
-    const auto blasBuildSizes = device.device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, blasBuildGeometryInfo, {primitiveCount}, dldid);
+    const auto blasBuildSizes = device.device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, blasBuildGeometryInfo, primitiveCount, dldid);
+
+    const auto scratch = CreateAllocatedBuffer(device.device, allocator, blasBuildSizes.buildScratchSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eShaderDeviceAddress, VMA_MEMORY_USAGE_AUTO);
+    blasBuildGeometryInfo.setScratchData(scratch.address);
+
+    AccelerationStruct as;
+    as.buffer = CreateAllocatedBuffer(device.device, allocator, blasBuildSizes.accelerationStructureSize,
+            vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR | vk::BufferUsageFlagBits::eAccelerationStructureStorageKHR | vk::BufferUsageFlagBits::eShaderDeviceAddress,
+            VMA_MEMORY_USAGE_AUTO);
+
     const auto blasCreateInfo = vk::AccelerationStructureCreateInfoKHR()
         .setOffset(0)
         .setSize(blasBuildSizes.accelerationStructureSize)
-    // TODO: Buffers not initialized
-        .setBuffer(BLASBuffers[BLASBuffers.size()].buffer)
+        .setBuffer(as.buffer.buffer)
         .setType(vk::AccelerationStructureTypeKHR::eBottomLevel);
 
-    auto BLAS = device.device.createAccelerationStructureKHR(blasCreateInfo, nullptr, dldid);
-    blasBuildGeometryInfo.setDstAccelerationStructure(BLAS);
+    auto blasHandle = device.device.createAccelerationStructureKHR(blasCreateInfo, nullptr, dldid);
+    blasBuildGeometryInfo.setDstAccelerationStructure(blasHandle);
+    as.handle = blasHandle;
 
     const auto blasRangeInfo = vk::AccelerationStructureBuildRangeInfoKHR()
         .setPrimitiveCount(primitiveCount)
@@ -42,22 +56,17 @@ vk::AccelerationStructureKHR Renderer::BLASFromMesh(const uint32_t meshVerticesC
     const std::function func = [&] { graphCompCmdBuffers[0].buildAccelerationStructuresKHR(blasBuildGeometryInfo, &blasRangeInfo, dldid); };
     SubmitImmediate(func);
 
-    return BLAS;
-}
-
-vk::AccelerationStructureKHR TLASFromBLAS(vk::AccelerationStructureKHR BLAS, const vk::Device device, const uint32_t primitiveCount, const vk::detail::DispatchLoaderDynamic& dldid) {
-    const auto addrInfo = vk::AccelerationStructureDeviceAddressInfoKHR();
-        //.setAccelerationStructure(*blasHandles[i]);
-    const auto blasDeviceAddr = device.getAccelerationStructureAddressKHR(addrInfo, dldid);
-
-    const auto instance = vk::AccelerationStructureInstanceKHR()
+    const auto blasInstance = vk::AccelerationStructureInstanceKHR()
+        .setAccelerationStructureReference(as.buffer.address)
         .setMask(0xFF)
-        //.setTransform(nullptr)
-        .setAccelerationStructureReference(blasDeviceAddr);
-    //instances.push_back(instance);
+        .setTransform(identity);
+    as.instance = blasInstance;
 
+    BLAccelerationStructs.emplace_back(as);
+}
+void Renderer::BuildTLAS(const uint32_t primitiveCount) {
     auto instancesData = vk::AccelerationStructureGeometryInstancesDataKHR()
-        //.setData = instanceAddr()
+        .setData(instanceAddr())
         .setArrayOfPointers(vk::False);
     vk::AccelerationStructureGeometryDataKHR geometryData(instancesData);
 
@@ -70,15 +79,15 @@ vk::AccelerationStructureKHR TLASFromBLAS(vk::AccelerationStructureKHR BLAS, con
         .setMode(vk::BuildAccelerationStructureModeKHR::eBuild)
         .setGeometries(tlasGeometry);
 
-    const auto tlasBuildSizes = device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, tlasBuildGeometryInfo, primitiveCount, dldid);
+    const auto tlasBuildSizes = device.device.getAccelerationStructureBuildSizesKHR(vk::AccelerationStructureBuildTypeKHR::eDevice, tlasBuildGeometryInfo, primitiveCount, dldid);
 
     const auto tlasCreateInfo = vk::AccelerationStructureCreateInfoKHR()
-        //.setBuffer(tlasBuffer)
+        .setBuffer(TLASBuffer.buffer)
         .setOffset(0)
         .setSize(tlasBuildSizes.accelerationStructureSize)
         .setType(vk::AccelerationStructureTypeKHR::eTopLevel);
 
-    const auto tlas = device.createAccelerationStructureKHR(tlasCreateInfo, nullptr, dldid);
+    const auto tlas = device.device.createAccelerationStructureKHR(tlasCreateInfo, nullptr, dldid);
     tlasBuildGeometryInfo.setDstAccelerationStructure(tlas);
 
     const auto tlasRangeInfo = vk::AccelerationStructureBuildRangeInfoKHR()
@@ -87,9 +96,8 @@ vk::AccelerationStructureKHR TLASFromBLAS(vk::AccelerationStructureKHR BLAS, con
         .setFirstVertex(0)
         .setTransformOffset(0);
 
-    //auto cmd = beginSingleTimeCommands();
-    //cmd->buildAccelerationStructuresKHR({ tlasBuildGeometryInfo }, { &tlasRangeInfo });
-    //endSingleTimeCommands(*cmd);
+    const std::function func = [&] { graphCompCmdBuffers[0].buildAccelerationStructuresKHR(tlasBuildGeometryInfo, &tlasRangeInfo, dldid); };
+    SubmitImmediate(func);
 
     return tlas;
 }

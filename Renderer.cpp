@@ -18,6 +18,9 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     CreateDescSets_Init();
     CreatePipeline();
 
+    BuildSubMeshBLAS(vertices.size(), indices.size() / 3, 0, 0);
+    BuildTLAS(indices.size() / 3);
+
     // Setup UI.
     InitImGui(window);
 }
@@ -135,7 +138,7 @@ void Renderer::Draw() {
             graphCompCmdBuffers[currentFrame].pipelineBarrier2(tileFrustumsDependencyInfo);
         }
 
-        if (useForwardPlusTestShader) {
+        //if (useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingViewShader, dldid);
             graphCompCmdBuffers[currentFrame].dispatch(1, 1, 1);
 
@@ -150,12 +153,12 @@ void Renderer::Draw() {
             const auto lightInViewDependencyInfo = vk::DependencyInfo()
                 .setBufferMemoryBarriers(lightInViewBarrier);
             graphCompCmdBuffers[currentFrame].pipelineBarrier2(lightInViewDependencyInfo);
-        }
+        //}
 
-        if(useForwardPlusTestShader)
+        //if(useForwardPlusTestShader)
             graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingTestShader, dldid);
-        else
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
+        //else
+        //    graphCompCmdBuffers[currentFrame].bindShadersEXT(vk::ShaderStageFlagBits::eCompute, lightCullingShader, dldid);
 
         graphCompCmdBuffers[currentFrame].dispatch(lightCullX, lightCullY, 1);
 
@@ -257,12 +260,13 @@ void Renderer::Draw() {
     // Forward shading and specular.
     graphCompCmdBuffers[currentFrame].beginRendering(renderInfo);
     if (doLightCulling) {
-        if (!useForwardPlusTestShader) {
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusShaders, dldid);
+        if (showLightHeatmap) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
-        } else if (showLightHeatmap) {
-            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, lightHeatmapShaders, dldid);
+        }
+        else if (useForwardPlusTestShader) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusRayQueryShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
         }
@@ -540,6 +544,7 @@ void Renderer::CreatePipeline() {
     descriptorLayouts.emplace_back(descriptors.descriptorLayout);
     forwardShaders      = MakeTaskMeshShaderObjectsSlang(device.device, "forward", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusShaders  = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus", dldid, perspectiveRange, descriptorLayouts);
+    forwardPlusRayQueryShaders = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlus_RayQuery", dldid, perspectiveRange, descriptorLayouts);
     forwardPlusTestShaders = MakeTaskMeshShaderObjectsSlang(device.device, "forwardPlusTest", dldid, perspectiveRange, descriptorLayouts);
     lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
@@ -720,7 +725,7 @@ void Renderer::LoadGLTF(const std::filesystem::path& path, Uploader& uploader, g
             meshView.end   = vertices.size() - 1;
             meshView.flags = 1;
 
-            BLASFromMesh(verticesLocal.size(), indicesLocal.size() / 3, prevIndicesSize, prevVerticesSize);
+            //SubMeshBLAS(verticesLocal.size(), indicesLocal.size() / 3, prevIndicesSize, prevVerticesSize);
             AddMeshlets(indicesLocal, positions, prevVerticesSize, meshViews.size());
 
             meshViews.emplace_back(meshView);
@@ -770,12 +775,12 @@ void BuildMeshlets(const std::span<uint32_t> indices, const std::span<float> pos
     }
 }
 
-void Renderer::AddMeshlets(std::span<uint32_t> indices, std::span<float> positions, uint32_t prevVerticesSize, uint32_t meshID) {
+void Renderer::AddMeshlets(const std::span<uint32_t> indicesIn, const std::span<float> positions, const uint32_t prevVerticesSize, const uint32_t meshID) {
     std::vector<meshopt_Meshlet> meshletsLocal;
     std::vector<uint32_t>        verticesLocal;
     std::vector<uint8_t>         indicesLocal;
     std::vector<MeshletBounds>   boundsLocal;
-    BuildMeshlets(indices, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal, meshID);
+    BuildMeshlets(indicesIn, positions, meshletsLocal, verticesLocal, indicesLocal, boundsLocal, meshID);
 
     // Add to geometry pool.
     const auto prevMeshletsSize = meshlets.size();
@@ -1099,6 +1104,9 @@ void Renderer::CreateDescSets_Init() {
     descriptors.AddBufferDescriptor(dirShadowTransBuffer.buffer, sizeof(glm::mat4), vk::DescriptorType::eUniformBuffer, 6);
     descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 7);
     descriptors.AddBufferDescriptor(tileDepthsBuffer.buffer, tileDepthsSize, vk::DescriptorType::eStorageBuffer, 8);
+
+    // TODO: TLAS and size
+    descriptors.AddBufferDescriptor(TLASBuffer.buffer, 0, vk::DescriptorType::eAccelerationStructureKHR, 9);
 
     const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);
