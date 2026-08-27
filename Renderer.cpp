@@ -4,6 +4,7 @@
 #include "Renderer.h"
 
 Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
+    BLAccelerationStructs = AccelerationStructures();
     InitMainObjects(window, ready);
     CreateFencesAndSemaphores();
 
@@ -15,11 +16,11 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     LoadModels_Init();
     SpawnLights_Init();
 
+    BuildSubMeshBLAS(vertices.size(), indices.size() / 3, 0, 0);
+    BuildTLAS();
+
     CreateDescSets_Init();
     CreatePipeline();
-
-    BuildSubMeshBLAS(vertices.size(), indices.size() / 3, 0, 0);
-    BuildTLAS(indices.size() / 3);
 
     // Setup UI.
     InitImGui(window);
@@ -936,6 +937,15 @@ void Renderer::LoadModels_Init() {
     bistroTrans = glm::scale(bistroTrans, glm::vec3(0.001f));
     //LoadGLTF("assets/Buggy.glb", uploader, bistroTrans);
 
+    constexpr auto usage = vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eAccelerationStructureBuildInputReadOnlyKHR;
+    vertexBuffer  = CreateAllocatedBuffer(device.device, allocator,
+        sizeof(Vertex) * vertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+    indicesBuffer = CreateAllocatedBuffer(device.device, allocator,
+        sizeof(uint32_t) * indices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
+
+    uploader.StageUpload(vertexBuffer, vertices);
+    uploader.StageUpload(indicesBuffer, indices);
+
     const std::function upload = [&] {
         stageBuffers[0] = uploader.Upload(graphCompCmdBuffers[0], device.device);
     };
@@ -1057,7 +1067,6 @@ void Renderer::CreateDescSets_Init() {
     lightBuffer      = CreateAllocatedBuffer(device.device, allocator, sizeof(Light) * lights.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
     materialBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(MaterialIndexGroup) * materialIndexGroups.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
     meshViewBuffer   = CreateAllocatedBuffer(device.device, allocator, sizeof(MeshView) * meshViews.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
-    vertexBuffer     = CreateAllocatedBuffer(device.device, allocator, sizeof(Vertex) * vertices.size(), usage, VMA_MEMORY_USAGE_GPU_ONLY);
 
     dirShadowTransBuffer = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), vk::BufferUsageFlagBits::eUniformBuffer | vk::BufferUsageFlagBits::eTransferDst, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
     projViewBuffer  = CreateAllocatedBuffer(device.device, allocator, sizeof(glm::mat4), usage, VmaMemoryUsage::VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
@@ -1075,7 +1084,6 @@ void Renderer::CreateDescSets_Init() {
 
     auto uploader = Uploader(allocator);
     uploader.StageUpload(addressBuffer, bufferAddresses);
-    uploader.StageUpload(vertexBuffer, vertices);
     uploader.StageUpload(meshViewBuffer, meshViews);
     uploader.StageUpload(meshletBoundsBuffer, meshletBounds);
     uploader.StageUpload(meshletsBuffer, meshlets);
@@ -1106,7 +1114,9 @@ void Renderer::CreateDescSets_Init() {
     descriptors.AddBufferDescriptor(tileDepthsBuffer.buffer, tileDepthsSize, vk::DescriptorType::eStorageBuffer, 8);
 
     // TODO: TLAS and size
-    descriptors.AddBufferDescriptor(TLASBuffer.buffer, 0, vk::DescriptorType::eAccelerationStructureKHR, 9);
+    auto descAS = vk::WriteDescriptorSetAccelerationStructureKHR()
+        .setAccelerationStructures(TLAccelerationStruct.handle);
+    descriptors.AddBufferDescriptor(TLASBuffer.buffer, sizeof(vk::AccelerationStructureKHR), vk::DescriptorType::eAccelerationStructureKHR, 9, &descAS);
 
     const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);

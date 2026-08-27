@@ -32,6 +32,7 @@ Device::Device(vk::Instance& instance) {
     deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
     deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+    deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     //deviceExtensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME); //
     //deviceExtensions.push_back(VK_KHR_PRESENT_MODE_FIFO_LATEST_READY_EXTENSION_NAME);
     std::vector<bool> extensionSupported(deviceExtensions.size());
@@ -66,8 +67,11 @@ Device::Device(vk::Instance& instance) {
     //    .setPNext(&fifoLatestReadyFeatures);
 
     // KHR version explicitly required for ImGui.
+    auto rayQueryFeatures = vk::PhysicalDeviceRayQueryFeaturesKHR()
+        .setRayQuery(vk::True);
     auto accelerationStructuresFeatures = vk::PhysicalDeviceAccelerationStructureFeaturesKHR()
-        .setAccelerationStructure(vk::True);
+        .setAccelerationStructure(vk::True)
+        .setPNext(&rayQueryFeatures);
     auto dynamicRenderingFeaturesIMGUI = vk::PhysicalDeviceDynamicRenderingFeaturesKHR()
         .setDynamicRendering(vk::True)
         .setPNext(&accelerationStructuresFeatures);

@@ -15,11 +15,13 @@ struct BufferDescriptor {
     vk::DeviceSize bufferSize;
 };
 struct Descriptor {
-    vk::DescriptorType descriptorType;
-    uint32_t shaderBinding;
+    vk::DescriptorType descriptorType = vk::DescriptorType::eStorageBuffer;
+    uint32_t shaderBinding = 0;
 
     ImageDescriptor imageDescriptor;
     BufferDescriptor bufferDescriptor;
+
+    void* pNext = nullptr;
 };
 
 class Descriptors {
@@ -27,7 +29,8 @@ public:
     void AddImageDescriptor(const AllocatedImage &images, vk::ImageLayout layout, uint32_t shaderBinding);
     void UpdateImageDescriptor(const AllocatedImage& images, vk::ImageLayout layout, uint32_t shaderBinding);
     void AddImageDescriptor(const std::vector<AllocatedImage> &images, vk::ImageLayout layout, uint32_t shaderBinding);
-    void AddBufferDescriptor(vk::Buffer buffer, vk::DeviceSize bufferSize, vk::DescriptorType descriptorType, uint32_t shaderBinding);
+    void AddBufferDescriptor(vk::Buffer buffer, vk::DeviceSize bufferSize, vk::DescriptorType descriptorType,
+        uint32_t shaderBinding, void* pNext = nullptr);
 
     void CreateSetsAndWriteDescriptors(vk::Device device);
 

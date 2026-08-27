@@ -164,6 +164,17 @@ struct AccelerationStruct
 	vk::AccelerationStructureInstanceKHR instance;
 	vk::AccelerationStructureKHR handle;
 };
+class AccelerationStructures
+{
+public:
+	AccelerationStructures();
+	void AddStruct(AllocatedBuffer& buffer, vk::AccelerationStructureInstanceKHR instance, vk::AccelerationStructureKHR accelerationStruct);
+	void AddStruct(AccelerationStruct as);
+
+	std::vector<vk::AccelerationStructureKHR> structs;
+	std::vector<vk::AccelerationStructureInstanceKHR> instances;
+	std::vector<AllocatedBuffer> buffers;
+};
 struct Chunk {
 	uint32_t blocks[32][32];
 	uint32_t x, y;
@@ -242,7 +253,7 @@ private:
 	std::vector<vk::DescriptorSetLayout> descriptorLayouts;
 
 	void BuildSubMeshBLAS(uint32_t meshVerticesCount, uint32_t primitiveCount, uint32_t firstIndex, uint32_t firstVertex);
-	void BuildTLAS(uint32_t primitiveCount);
+	void BuildTLAS();
 	void LoadGLTF(const std::filesystem::path& path, Uploader& uploader, glm::mat4 transform = glm::mat4(1.0f));
 	fastgltf::Parser parser;
 
@@ -251,8 +262,10 @@ private:
 	AllocatedBuffer stageBuffer;
 	VmaAllocator allocator{};
 
-	std::vector<AccelerationStruct> BLAccelerationStructs;
+	AccelerationStructures BLAccelerationStructs;
+	AccelerationStruct TLAccelerationStruct;
 	AllocatedBuffer TLASBuffer;
+	AllocatedBuffer BLASInstancesBuffer;
 
 	AllocatedBuffer meshletsBuffer;
 	AllocatedBuffer meshletBoundsBuffer;
