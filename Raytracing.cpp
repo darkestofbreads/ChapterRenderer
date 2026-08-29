@@ -11,7 +11,7 @@ void Renderer::BuildSubMeshBLAS(const uint32_t meshVerticesCount, const uint32_t
     const auto trianglesData = vk::AccelerationStructureGeometryTrianglesDataKHR()
         .setIndexData(indicesBuffer.address + firstIndex * sizeof(uint32_t))
         .setIndexType(vk::IndexType::eUint32)
-        .setMaxVertex(meshVerticesCount)
+        .setMaxVertex(std::max(meshVerticesCount - 1, 0U))
         .setVertexData(vertexBuffer.address)
         .setVertexFormat(vk::Format::eR32G32B32Sfloat)
         .setVertexStride(sizeof(Vertex));

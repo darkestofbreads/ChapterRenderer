@@ -1,7 +1,7 @@
 #include "Descriptors.h"
 
 void Descriptors::AddBufferDescriptor(const vk::Buffer buffer, const vk::DeviceSize bufferSize,
-        const vk::DescriptorType descriptorType, const uint32_t shaderBinding, void* pNext) {
+        const vk::DescriptorType descriptorType, const uint32_t shaderBinding, const std::shared_ptr<void>& pNext) {
     BufferDescriptor bufferDescriptor;
     bufferDescriptor.bufferSize = bufferSize;
     bufferDescriptor.buffer = buffer;
@@ -88,7 +88,7 @@ void Descriptors::CreateSetsAndWriteDescriptors(const vk::Device device) {
         .setDescriptorType(d.descriptorType)
         .setDstBinding(d.shaderBinding)
         .setDescriptorCount(descriptorCount)
-        .setPNext(d.pNext);
+        .setPNext(d.pNext.get());
         if (d.descriptorType == vk::DescriptorType::eCombinedImageSampler) {
             descWrite[i]
             .setImageInfo(d.imageDescriptor.descriptorImageInfos);

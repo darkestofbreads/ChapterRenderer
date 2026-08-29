@@ -1,4 +1,3 @@
-//#define STB_IMAGE_IMPLEMENTATION
 #define VMA_IMPLEMENTATION
 
 #include "Renderer.h"
@@ -16,7 +15,7 @@ Renderer::Renderer(SDL_Window* window, std::atomic<bool>* ready) {
     LoadModels_Init();
     SpawnLights_Init();
 
-    BuildSubMeshBLAS(vertices.size(), indices.size() / 3, 0, 0);
+    BuildSubMeshBLAS(vertices.size() - 6, indices.size() / 3, 0, 6);
     BuildTLAS();
 
     CreateDescSets_Init();
@@ -1113,10 +1112,8 @@ void Renderer::CreateDescSets_Init() {
     descriptors.AddBufferDescriptor(lightIndicesViewBuffer.buffer, lightIndicesViewSize, vk::DescriptorType::eStorageBuffer, 7);
     descriptors.AddBufferDescriptor(tileDepthsBuffer.buffer, tileDepthsSize, vk::DescriptorType::eStorageBuffer, 8);
 
-    // TODO: TLAS and size
-    auto descAS = vk::WriteDescriptorSetAccelerationStructureKHR()
-        .setAccelerationStructures(TLAccelerationStruct.handle);
-    descriptors.AddBufferDescriptor(TLASBuffer.buffer, sizeof(vk::AccelerationStructureKHR), vk::DescriptorType::eAccelerationStructureKHR, 9, &descAS);
+    const auto descASPtr = std::make_shared<vk::WriteDescriptorSetAccelerationStructureKHR>(vk::WriteDescriptorSetAccelerationStructureKHR().setAccelerationStructures(TLAccelerationStruct.handle));
+    descriptors.AddBufferDescriptor(TLASBuffer.buffer, sizeof(vk::AccelerationStructureKHR), vk::DescriptorType::eAccelerationStructureKHR, 9, descASPtr);
 
     const std::function descFunc = [&] { descriptors.CreateSetsAndWriteDescriptors(device.device); };
     SubmitImmediate(descFunc);

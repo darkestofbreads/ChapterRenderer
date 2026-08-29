@@ -21,7 +21,7 @@ struct Descriptor {
     ImageDescriptor imageDescriptor;
     BufferDescriptor bufferDescriptor;
 
-    void* pNext = nullptr;
+    std::shared_ptr<void> pNext = nullptr;
 };
 
 class Descriptors {
@@ -30,7 +30,7 @@ public:
     void UpdateImageDescriptor(const AllocatedImage& images, vk::ImageLayout layout, uint32_t shaderBinding);
     void AddImageDescriptor(const std::vector<AllocatedImage> &images, vk::ImageLayout layout, uint32_t shaderBinding);
     void AddBufferDescriptor(vk::Buffer buffer, vk::DeviceSize bufferSize, vk::DescriptorType descriptorType,
-        uint32_t shaderBinding, void* pNext = nullptr);
+        uint32_t shaderBinding, const std::shared_ptr<void>& pNext = nullptr);
 
     void CreateSetsAndWriteDescriptors(vk::Device device);
 

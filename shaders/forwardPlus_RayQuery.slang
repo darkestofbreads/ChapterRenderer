@@ -54,6 +54,7 @@ struct VertexOutput
 {
     float4 screenPos : SV_Position;
     float4 viewPos;
+    float4 pos;
     float3 normal;
     float4 color;
     float2 uv;
@@ -103,6 +104,10 @@ void meshMain(
     vertices[0].viewPos = mul(float4(vertex0.position, 1.0), view);
     vertices[1].viewPos = mul(float4(vertex1.position, 1.0), view);
     vertices[2].viewPos = mul(float4(vertex2.position, 1.0), view);
+
+    vertices[0].pos = float4(vertex0.position, 1.0);
+    vertices[1].pos = float4(vertex1.position, 1.0);
+    vertices[2].pos = float4(vertex2.position, 1.0);
 
     let normalTransform = float3x3(transpose(*pc.invView));
     vertices[0].normal = mul(vertex0.normal, normalTransform);
@@ -161,7 +166,7 @@ float4 fragMain(VertexOutput input, uniform PushConstant pc)
     // Directional lights
     var index = 0U;
     var limit = pc.sceneInfo.pointLightCount;
-    let inShadow = shadowRayQuery(input.viewPos.xyz);
+    let inShadow = shadowRayQuery(input.pos.xyz);
 
     if(!inShadow)
         for (limit += pc.sceneInfo.dirLightCount; index < limit; index++) {
