@@ -265,6 +265,11 @@ void Renderer::Draw() {
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
             graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
         }
+        else if (showAccelerationStruct) {
+            graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, rayVisionShaders, dldid);
+            graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
+            graphCompCmdBuffers[currentFrame].drawMeshTasksEXT(meshlets.size(), 1, 1, dldid);
+        }
         else if (useForwardPlusTestShader) {
             graphCompCmdBuffers[currentFrame].bindShadersEXT(meshStages, forwardPlusRayQueryShaders, dldid);
             graphCompCmdBuffers[currentFrame].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, descriptors.descriptorSets, nullptr);
@@ -549,6 +554,7 @@ void Renderer::CreatePipeline() {
     lightHeatmapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "lightHeatmap", dldid, perspectiveRange, descriptorLayouts);
     depthprepassShaders = MakeTaskMeshShaderObjectsSlang(device.device, "depthprepass", dldid, perspectiveRange, descriptorLayouts);
     shadowMapShaders = MakeTaskMeshShaderObjectsSlang(device.device, "shadowMapping", dldid, perspectiveRange, descriptorLayouts);
+    rayVisionShaders = MakeTaskMeshShaderObjectsSlang(device.device, "rayVisionDebug", dldid, perspectiveRange, descriptorLayouts);
 
     lightCullingTestShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingTest", dldid, perspectiveRange, descriptorLayouts);
     lightCullingViewShader   = MakeComputeShaderObjectSlang(device.device, "lightCullingView", dldid, perspectiveRange, descriptorLayouts);
@@ -894,6 +900,7 @@ void Renderer::ImGui_Draw(double frameTime) {
     ImGui::Checkbox("Use Forward Plus shading", &doLightCulling);
     if (doLightCulling)
         ImGui::Checkbox("   Show light heatmap", &showLightHeatmap);
+    ImGui::Checkbox("   View acceleration structure", &showAccelerationStruct);
     if (doLightCulling)
         ImGui::Checkbox("   Use experimental shader", &useForwardPlusTestShader);
 }

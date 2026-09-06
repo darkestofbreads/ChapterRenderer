@@ -212,6 +212,7 @@ private:
 	bool drawUI = true;
 	bool showLightHeatmap = false;
 	bool useForwardPlusTestShader = false;
+	bool showAccelerationStruct = false;
 
 	void BuildGlobalTransform();
 	void InitImGui(SDL_Window* window);
@@ -342,6 +343,7 @@ private:
 	std::vector<vk::ShaderEXT> lightHeatmapShaders;
 	std::vector<vk::ShaderEXT> depthprepassShaders;
 	std::vector<vk::ShaderEXT> shadowMapShaders;
+	std::vector<vk::ShaderEXT> rayVisionShaders;
 	vk::ShaderEXT minMaxDepthShader;
 	vk::ShaderEXT lightCullingShader;
 	vk::ShaderEXT lightCullingViewShader;
