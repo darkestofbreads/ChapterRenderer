@@ -116,7 +116,7 @@ AABB ComputeAABB(float3 min, float3 max) {
 }
 
 struct Vertex {
-	float3 position;
+	float3 position : SV_Position;
 	float u;
 	float3 normal;
 	float v;
