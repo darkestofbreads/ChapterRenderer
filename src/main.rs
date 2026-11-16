@@ -1,3 +1,7 @@
+use std::sync::Arc;
+use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage};
+use vulkano::buffer::BufferContents;
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
 use vulkano::VulkanLibrary;
 use vulkano::device::QueueFlags;
 use vulkano::device::{Device, DeviceCreateInfo, QueueCreateInfo};
@@ -49,4 +53,19 @@ fn main() {
     // https://vulkano.rs/03-buffer-creation/01-buffer-creation.html
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
+    let data: i32 = 12;
+    let buffer = Buffer::from_data(
+        memory_allocator.clone(),
+        BufferCreateInfo {
+            usage: BufferUsage::UNIFORM_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        data,
+    ).expect("Failed to create buffer");
+
+    
 }
